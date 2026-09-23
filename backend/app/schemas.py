@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -175,20 +174,41 @@ class ChatMessageOut(BaseModel):
     video_id: str
     role: str
     content: str
+    interrupted: bool = False
     created_at: datetime
-
-
-class HistoryMessage(BaseModel):
-    role: Literal["user", "assistant"]
-    content: str = Field(max_length=8000)
 
 
 class LibraryQuestion(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     question: str = Field(min_length=1, max_length=4000)
-    video_ids: list[str] = Field(min_length=1, max_length=500)
-    history: list[HistoryMessage] = Field(default=[], max_length=12)
+    # A new conversation names its videos; a follow-up uses the ones it started with.
+    video_ids: list[str] = Field(default=[], max_length=500)
+    conversation_id: str | None = Field(default=None, max_length=36)
+    scope: str | None = Field(default=None, max_length=200)
+
+
+class LibraryConversationOut(BaseModel):
+    id: str
+    title: str
+    scope: str | None
+    video_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class LibraryMessageOut(BaseModel):
+    id: str
+    role: str
+    content: str
+    sources: list[dict] = []
+    interrupted: bool = False
+    created_at: datetime
+
+
+class LibraryConversationDetail(LibraryConversationOut):
+    video_ids: list[str]
+    messages: list[LibraryMessageOut]
 
 
 class RegenerateIn(BaseModel):

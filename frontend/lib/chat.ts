@@ -1,8 +1,17 @@
 import { API, responseError } from "./api";
 
-export type ChatMessage = { id: string; video_id: string; role: "user" | "assistant"; content: string; created_at: string };
+export type ChatMessage = { id: string; video_id: string; role: "user" | "assistant"; content: string; interrupted?: boolean; created_at: string };
 export type Source = { n: number; video_id: string; title: string; start_seconds: number; end_seconds: number };
-export type SourcesEvent = { sources: Source[]; searched: number; skipped: number };
+export type SourcesEvent = { conversation_id: string; sources: Source[]; searched: number; skipped: number };
+export type Conversation = { id: string; title: string; scope: string | null; video_count: number; created_at: string; updated_at: string };
+export type ConversationMessage = { id: string; role: "user" | "assistant"; content: string; sources: Source[]; interrupted: boolean; created_at: string };
+export type ConversationDetail = Conversation & { video_ids: string[]; messages: ConversationMessage[] };
+
+/** The model failed mid-answer; `saved` tells whether what was written so far was kept. */
+export class ChatError extends Error {
+  saved: boolean;
+  constructor(message: string, saved: boolean) { super(message); this.saved = saved; }
+}
 
 /** POST a JSON body and read the Server-Sent Events of the answer (EventSource only does GET). */
 async function postEvents(path: string, body: unknown, onEvent: (event: string, data: any) => boolean | void, signal?: AbortSignal) {
@@ -29,12 +38,13 @@ async function postEvents(path: string, body: unknown, onEvent: (event: string, 
       }
       if (!data) continue;
       const payload = JSON.parse(data);
-      if (event === "error") throw new Error(payload.detail || "Assistant indisponible");
+      if (event === "error") throw new ChatError(payload.detail || "Assistant indisponible", !!payload.saved);
       // true: the answer is complete.
       if (onEvent(event, payload)) return;
     }
   }
-  throw new Error("La réponse a été interrompue avant sa fin ; réessayez.");
+  // The connection dropped: the server keeps what it had written.
+  throw new ChatError("La réponse a été interrompue avant sa fin.", true);
 }
 
 /**
@@ -50,9 +60,9 @@ export async function streamChat(videoId: string, question: string, onDelta: (te
   return saved;
 }
 
-/** A question on several videos (n°19): numbered sources first, then the answer. */
+/** A question on several videos (n°19): numbered sources first, then the answer. The conversation is kept by the server. */
 export async function streamLibraryChat(
-  body: { question: string; video_ids: string[]; history: { role: "user" | "assistant"; content: string }[] },
+  body: { question: string; video_ids?: string[]; conversation_id?: string | null; scope?: string | null },
   onSources: (event: SourcesEvent) => void, onDelta: (text: string) => void, signal?: AbortSignal,
 ): Promise<string> {
   let answer = "";

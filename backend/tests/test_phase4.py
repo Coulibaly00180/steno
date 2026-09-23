@@ -311,7 +311,6 @@ def test_library_question_cites_numbered_passages_from_several_videos(client, db
     monkeypatch.setattr(main, "stream_chat", fake_stream)
     response = client.post("/library/chat/stream", json={
         "question": "Que dit-on du budget ?", "video_ids": ["budget", "velo", "pending", "unknown"],
-        "history": [{"role": "user", "content": "Bonjour"}, {"role": "assistant", "content": "Bonjour !"}],
     })
 
     assert response.status_code == 200, response.text
@@ -324,8 +323,11 @@ def test_library_question_cites_numbered_passages_from_several_videos(client, db
     # At most LIBRARY_PASSAGES_PER_VIDEO passages of one video, before merging.
     assert sum(1 for s in sources["sources"] if s["video_id"] == "budget") <= main.LIBRARY_PASSAGES_PER_VIDEO
     assert [s["n"] for s in sources["sources"]] == list(range(1, len(sources["sources"]) + 1))
-    assert events[-1] == ("done", {"answer": "Le budget est voté [1][2]."})
-    assert "[1] Vidéo « " in prompts[0] and "Utilisateur : Bonjour" in prompts[0]
+    assert events[-1] == ("done", {"answer": "Le budget est voté [1][2].", "conversation_id": sources["conversation_id"]})
+    assert "[1] Vidéo « " in prompts[0] and "(Aucun échange précédent.)" in prompts[0]
+    # The follow-up finds the first exchange in the saved conversation.
+    client.post("/library/chat/stream", json={"question": "Et les vélos ?", "conversation_id": sources["conversation_id"]})
+    assert "Utilisateur : Que dit-on du budget ?" in prompts[1] and "Assistant : Le budget est voté" in prompts[1]
 
 
 def test_library_question_needs_an_indexed_video(client, db_session):

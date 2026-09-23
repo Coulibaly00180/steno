@@ -7,7 +7,7 @@ import uuid
 import logging
 from urllib.parse import quote
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
@@ -50,6 +50,8 @@ from .llm import (
 )
 from .models import (
     GlossaryTerm,
+    LibraryConversation,
+    LibraryMessage,
     ProcessingJob,
     Summary,
     SummaryTemplate,
@@ -72,6 +74,8 @@ from .schemas import (
     SummaryOut,
     ChatQuestion,
     DiarizeIn,
+    LibraryConversationDetail,
+    LibraryConversationOut,
     LibraryQuestion,
     SpeakerMergeIn,
     SpeakerRenameIn,
@@ -766,12 +770,14 @@ def _chat_inputs(video_id: str, question: str) -> tuple[list[tuple[str, str]], s
     return history, context, fallback_language, vocabulary
 
 
-def _save_chat_exchange(video_id: str, question: str, answer: str) -> list[VideoChatMessage]:
+def _save_chat_exchange(video_id: str, question: str, answer: str, *, interrupted: bool = False) -> list[VideoChatMessage]:
     with SessionLocal() as db:
-        # Persist both messages only after a usable answer exists: the history
-        # never contains an orphaned question from an unavailable model.
+        # Persist both messages only once some answer exists: the history never
+        # contains an orphaned question from an unavailable model.
         user_message = VideoChatMessage(id=str(uuid.uuid4()), video_id=video_id, role="user", content=question)
-        assistant_message = VideoChatMessage(id=str(uuid.uuid4()), video_id=video_id, role="assistant", content=answer)
+        assistant_message = VideoChatMessage(
+            id=str(uuid.uuid4()), video_id=video_id, role="assistant", content=answer, interrupted=interrupted
+        )
         db.add_all([user_message, assistant_message])
         db.commit()
         db.refresh(user_message)
@@ -801,8 +807,9 @@ async def stream_video_answer(video_id: str, payload: ChatQuestion):
     """Answer as Server-Sent Events while the model writes it (n°16).
 
     Events: `delta` {text}, then `done` {messages: [question, answer]} once both
-    are saved, or `error` {detail}. A client that leaves before the end stops
-    the generation, and nothing is saved.
+    are saved, or `error` {detail, saved}. A reader who leaves before the end
+    stops the generation; what was written so far is kept, flagged
+    `interrupted`, so a long answer is never lost.
     """
     history, context, fallback_language, vocabulary = await run_in_threadpool(_chat_inputs, video_id, payload.question)
     prompt = video_answer_prompt(
@@ -811,19 +818,30 @@ async def stream_video_answer(video_id: str, payload: ChatQuestion):
 
     async def events():
         pieces: list[str] = []
+        saved: list[VideoChatMessage] | None = None
+
+        def keep(interrupted: bool) -> list[VideoChatMessage] | None:
+            """Save the exchange once. A short synchronous write: it must also run when the reader is gone."""
+            nonlocal saved
+            answer = "".join(pieces).strip()
+            if saved is None and answer:
+                saved = _save_chat_exchange(video_id, payload.question, answer, interrupted=interrupted)
+            return saved
+
         try:
             async for piece in stream_chat(prompt, temperature=CHAT_TEMPERATURE, max_output_tokens=CHAT_MAX_OUTPUT_TOKENS):
                 pieces.append(piece)
                 yield _sse("delta", {"text": piece})
-            answer = "".join(pieces).strip()
-            if not answer:
+            if not "".join(pieces).strip():
                 raise RuntimeError("Empty answer")
-            saved = await run_in_threadpool(_save_chat_exchange, video_id, payload.question, answer)
+            keep(False)
+            yield _sse("done", {"messages": [ChatMessageOut.model_validate(m).model_dump(mode="json") for m in saved or []]})
         except Exception:
             logger.exception("Unable to stream an answer for video %s", video_id)
-            yield _sse("error", {"detail": ERROR_CHAT_UNAVAILABLE})
-            return
-        yield _sse("done", {"messages": [ChatMessageOut.model_validate(message).model_dump(mode="json") for message in saved]})
+            yield _sse("error", {"detail": ERROR_CHAT_UNAVAILABLE, "saved": keep(True) is not None})
+        finally:
+            # The reader left (the task is cancelled): keep what was written.
+            keep(True)
 
     # X-Accel-Buffering: a reverse proxy must pass each piece on at once.
     return StreamingResponse(
@@ -1322,17 +1340,52 @@ def set_video_tags(video_id: str, payload: TagsIn):
 
 # --- Questions on several videos (n°19) -------------------------------------------------
 
-def _library_sources(payload: LibraryQuestion) -> tuple[list[dict], str, int, int]:
-    """Numbered passages closest to the question among the indexed videos in scope."""
-    video_ids = list(dict.fromkeys(payload.video_ids))[:LIBRARY_MAX_VIDEOS]
+LIBRARY_HISTORY_MESSAGES = 12
+LIBRARY_HISTORY_ANSWER_CHARS = 2000
+CONVERSATIONS_LIMIT = 100
+
+
+def _conversation_or_404(db, conversation_id: str) -> LibraryConversation:
+    conversation = db.get(LibraryConversation, conversation_id)
+    if conversation is None:
+        raise HTTPException(404, "Conversation introuvable")
+    return conversation
+
+
+def _conversation_out(conversation: LibraryConversation) -> dict:
+    return {
+        "id": conversation.id,
+        "title": conversation.title,
+        "scope": conversation.scope,
+        "video_count": len(json.loads(conversation.video_ids)),
+        "created_at": conversation.created_at,
+        "updated_at": conversation.updated_at,
+    }
+
+
+def _library_prepare(payload: LibraryQuestion) -> dict:
+    """Conversation, history and numbered passages closest to the question, among the indexed videos in scope."""
     with SessionLocal() as db:
+        conversation = _conversation_or_404(db, payload.conversation_id) if payload.conversation_id else None
+        if conversation is not None:
+            video_ids = json.loads(conversation.video_ids)
+            history = [
+                (message.role, message.content[:LIBRARY_HISTORY_ANSWER_CHARS])
+                for message in conversation.messages[-LIBRARY_HISTORY_MESSAGES:]
+            ]
+        else:
+            video_ids = payload.video_ids
+            history = []
+            if not video_ids:
+                raise HTTPException(422, "Choisissez au moins une vidéo")
+        video_ids = list(dict.fromkeys(video_ids))[:LIBRARY_MAX_VIDEOS]
         titles = dict(db.execute(
             select(Video.id, Video.original_filename).where(Video.id.in_(video_ids), Video.status == "COMPLETED")
         ).all())
         ready = sorted(ready_video_ids(db, list(titles)))
         if not ready:
             raise HTTPException(409, "Aucune de ces vidéos n'est encore indexée pour les questions ; réessayez dans quelques minutes")
-        previous = [message.content for message in payload.history if message.role == "user"]
+        previous = [content for role, content in history if role == "user"]
         try:
             query = embed_texts([retrieval_query(payload.question, previous)])[0]
         except Exception as exc:
@@ -1341,6 +1394,20 @@ def _library_sources(payload: LibraryQuestion) -> tuple[list[dict], str, int, in
         hits: list[Hit] = merge_hits(search(
             db, ready, query, limit=LIBRARY_PASSAGES, per_video=LIBRARY_PASSAGES_PER_VIDEO
         ))
+        is_new = conversation is None
+        if conversation is None:
+            now = utcnow()
+            conversation = LibraryConversation(
+                id=str(uuid.uuid4()),
+                title=" ".join(payload.question.split())[:120],
+                scope=(payload.scope or "").strip() or None,
+                video_ids=json.dumps(video_ids),
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(conversation)
+            db.commit()
+        conversation_id = conversation.id
     # Most relevant first: the model reads the list in this order.
     hits.sort(key=lambda hit: hit.distance)
     sources = [
@@ -1357,40 +1424,117 @@ def _library_sources(payload: LibraryQuestion) -> tuple[list[dict], str, int, in
         f"[{source['n']}] Vidéo « {source['title']} », de {timestamp(hit.start_seconds)} à {timestamp(hit.end_seconds)} :\n{hit.text}"
         for source, hit in zip(sources, hits)
     )
-    return sources, text, len(ready), len(titles) - len(ready)
+    return {
+        "conversation_id": conversation_id, "is_new": is_new, "history": history, "sources": sources, "text": text,
+        "searched": len(ready), "skipped": len(titles) - len(ready),
+    }
+
+
+def _save_library_exchange(conversation_id: str, question: str, answer: str, sources: list[dict], *, interrupted: bool) -> bool:
+    with SessionLocal() as db:
+        conversation = db.get(LibraryConversation, conversation_id)
+        if conversation is None:  # deleted while the answer was written
+            return False
+        now = utcnow()
+        db.add(LibraryMessage(id=str(uuid.uuid4()), conversation_id=conversation_id, role="user", content=question, created_at=now))
+        db.add(LibraryMessage(
+            id=str(uuid.uuid4()), conversation_id=conversation_id, role="assistant", content=answer,
+            sources=json.dumps(sources, ensure_ascii=False), interrupted=interrupted, created_at=now + timedelta(milliseconds=1),
+        ))
+        conversation.updated_at = now
+        db.commit()
+    return True
+
+
+def _discard_empty_conversation(conversation_id: str) -> None:
+    with SessionLocal() as db:
+        conversation = db.get(LibraryConversation, conversation_id)
+        if conversation is not None and not conversation.messages:
+            db.delete(conversation)
+            db.commit()
 
 
 @app.post("/library/chat/stream")
 async def stream_library_answer(payload: LibraryQuestion):
     """Answer from passages of several videos, as Server-Sent Events (n°19).
 
-    Events: `sources` {sources, searched, skipped}, then `delta` {text}, then
-    `done` {answer} or `error` {detail}. Nothing is persisted: the conversation
-    lives in the page.
+    Events: `sources` {conversation_id, sources, searched, skipped}, then
+    `delta` {text}, then `done` {answer, conversation_id} or `error` {detail,
+    saved}. The exchange is kept in a conversation; what was written before the
+    reader left, or before the model failed, is kept too, flagged `interrupted`.
     """
-    sources, text, searched, skipped = await run_in_threadpool(_library_sources, payload)
-    history = [(message.role, message.content) for message in payload.history]
-    prompt = library_answer_prompt(payload.question, text, history)
+    prepared = await run_in_threadpool(_library_prepare, payload)
+    conversation_id, sources = prepared["conversation_id"], prepared["sources"]
+    prompt = library_answer_prompt(payload.question, prepared["text"], prepared["history"])
 
     async def events():
-        yield _sse("sources", {"sources": sources, "searched": searched, "skipped": skipped})
         pieces: list[str] = []
+        saved = False
+
+        def keep(interrupted: bool) -> bool:
+            nonlocal saved
+            answer = "".join(pieces).strip()
+            if not saved and answer:
+                saved = _save_library_exchange(conversation_id, payload.question, answer, sources, interrupted=interrupted)
+            return saved
+
         try:
+            yield _sse("sources", {
+                "conversation_id": conversation_id, "sources": sources,
+                "searched": prepared["searched"], "skipped": prepared["skipped"],
+            })
             async for piece in stream_chat(prompt, temperature=CHAT_TEMPERATURE, max_output_tokens=CHAT_MAX_OUTPUT_TOKENS * 2):
                 pieces.append(piece)
                 yield _sse("delta", {"text": piece})
             answer = "".join(pieces).strip()
             if not answer:
                 raise RuntimeError("Empty answer")
+            keep(False)
+            yield _sse("done", {"answer": answer, "conversation_id": conversation_id})
         except Exception:
             logger.exception("Unable to stream a library answer")
-            yield _sse("error", {"detail": ERROR_CHAT_UNAVAILABLE})
-            return
-        yield _sse("done", {"answer": answer})
+            yield _sse("error", {"detail": ERROR_CHAT_UNAVAILABLE, "saved": keep(True)})
+        finally:
+            keep(True)
+            if prepared["is_new"] and not saved:
+                _discard_empty_conversation(conversation_id)
 
     return StreamingResponse(
         events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
     )
+
+
+@app.get("/library/conversations", response_model=list[LibraryConversationOut])
+def list_conversations():
+    with SessionLocal() as db:
+        rows = db.scalars(select(LibraryConversation).order_by(desc(LibraryConversation.updated_at)).limit(CONVERSATIONS_LIMIT))
+        return [_conversation_out(conversation) for conversation in rows]
+
+
+@app.get("/library/conversations/{conversation_id}", response_model=LibraryConversationDetail)
+def get_conversation(conversation_id: str):
+    with SessionLocal() as db:
+        conversation = _conversation_or_404(db, conversation_id)
+        return {
+            **_conversation_out(conversation),
+            "video_ids": json.loads(conversation.video_ids),
+            "messages": [
+                {
+                    "id": message.id, "role": message.role, "content": message.content,
+                    "sources": json.loads(message.sources) if message.sources else [],
+                    "interrupted": message.interrupted, "created_at": message.created_at,
+                }
+                for message in conversation.messages
+            ],
+        }
+
+
+@app.delete("/library/conversations/{conversation_id}")
+def delete_conversation(conversation_id: str):
+    with SessionLocal() as db:
+        db.delete(_conversation_or_404(db, conversation_id))
+        db.commit()
+    return {"deleted": True}
 
 
 def _report(video_id: str, name: str) -> Response:

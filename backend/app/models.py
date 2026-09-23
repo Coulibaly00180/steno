@@ -165,6 +165,41 @@ class VideoChatMessage(Base):
     video_id: Mapped[str] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), index=True)
     role: Mapped[str] = mapped_column(String(16))
     content: Mapped[str] = mapped_column(Text)
+    # An answer cut short (the reader left, or the model stopped): what was written is kept.
+    interrupted: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class LibraryConversation(Base):
+    """A conversation with several videos at once (n°19), kept like the per-video chat."""
+
+    __tablename__ = "library_conversations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    title: Mapped[str] = mapped_column(String(120))
+    # Human-readable scope ("tag « Finance »") and the videos it covers (JSON list of ids).
+    scope: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    video_ids: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+    messages: Mapped[list["LibraryMessage"]] = relationship(
+        cascade="all, delete-orphan", order_by="LibraryMessage.created_at"
+    )
+
+
+class LibraryMessage(Base):
+    __tablename__ = "library_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("library_conversations.id", ondelete="CASCADE", name="fk_library_messages_conversation_id"), index=True
+    )
+    role: Mapped[str] = mapped_column(String(16))
+    content: Mapped[str] = mapped_column(Text)
+    # Passages cited by an answer (JSON): [n] in the text opens the video at that moment.
+    sources: Mapped[str | None] = mapped_column(Text, nullable=True)
+    interrupted: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

@@ -352,7 +352,7 @@ def test_streamed_answer_arrives_in_pieces_then_is_saved(client, db_session, mon
         assert db.query(VideoChatMessage).count() == 2
 
 
-def test_streamed_answer_failure_saves_nothing(client, db_session, monkeypatch):
+def test_streamed_answer_failure_keeps_the_partial_answer(client, db_session, monkeypatch):
     add_video(db_session, "v", transcript="[00:00:00] Bonjour")
 
     async def failing_stream(prompt, **kwargs):
@@ -361,7 +361,22 @@ def test_streamed_answer_failure_saves_nothing(client, db_session, monkeypatch):
 
     monkeypatch.setattr(main, "stream_chat", failing_stream)
     events = sse_events(client.post("/videos/v/chat/stream", json={"question": "Q ?"}).text)
-    assert events[-1] == ("error", {"detail": "Assistant indisponible, réessayez ultérieurement"})
+    assert events[-1] == ("error", {"detail": "Assistant indisponible, réessayez ultérieurement", "saved": True})
+    with db_session() as db:
+        messages = db.query(VideoChatMessage).order_by(VideoChatMessage.created_at).all()
+        assert [(m.role, m.content, m.interrupted) for m in messages] == [("user", "Q ?", False), ("assistant", "Début", True)]
+
+
+def test_streamed_answer_failure_without_output_saves_nothing(client, db_session, monkeypatch):
+    add_video(db_session, "v", transcript="[00:00:00] Bonjour")
+
+    async def failing_stream(prompt, **kwargs):
+        raise ConnectionError("Ollama stopped")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(main, "stream_chat", failing_stream)
+    events = sse_events(client.post("/videos/v/chat/stream", json={"question": "Q ?"}).text)
+    assert events[-1][0] == "error" and events[-1][1]["saved"] is False
     with db_session() as db:
         assert db.query(VideoChatMessage).count() == 0
 
