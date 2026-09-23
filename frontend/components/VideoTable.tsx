@@ -10,7 +10,21 @@ import { Icon } from "./Icons";
 export type VideoSummary = {
   id: string; original_filename: string; duration_seconds: number; size_bytes: number; status: string;
   detected_language?: string; target_language?: string; created_at: string; tags?: string[]; job?: Job | null;
+  // Passage around the words the library search matched (n°17).
+  snippet?: { text: string; ranges: [number, number][]; source: string; start_seconds: number | null } | null;
 };
+
+function Highlighted({ text, ranges }: { text: string; ranges: [number, number][] }) {
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+  for (const [start, end] of ranges) {
+    if (start < cursor) continue;
+    parts.push(text.slice(cursor, start), <mark key={start}>{text.slice(start, end)}</mark>);
+    cursor = end;
+  }
+  parts.push(text.slice(cursor));
+  return <>{parts}</>;
+}
 
 function statusInfo(status: string) {
   if (status === "COMPLETED") return { label: "Terminé", className: "status-completed" };
@@ -92,6 +106,11 @@ export default function VideoTable({ videos, onChanged, onTagClick, empty = "Auc
         return <div className="analysis-row" key={video.id}>
           <div className="analysis-file">
             <Link href={`/videos/${video.id}`} className="analysis-file-link"><span className="analysis-file-icon"><Icon name={audio ? "audio" : "video"} size={14}/></span><span className="analysis-name">{video.original_filename}</span></Link>
+            {video.snippet && <Link className="analysis-snippet" href={`/videos/${video.id}${video.snippet.start_seconds != null ? `?t=${Math.floor(video.snippet.start_seconds)}` : ""}`} title="Ouvrir la vidéo à ce passage">
+              {video.snippet.start_seconds != null && <span className="mono snippet-time">{formatDuration(video.snippet.start_seconds)}</span>}
+              <span className="snippet-text"><Highlighted text={video.snippet.text} ranges={video.snippet.ranges} /></span>
+              {video.snippet.source === "translation" && <span className="pill">traduction</span>}
+            </Link>}
             {!!video.tags?.length && <div className="tag-list">{video.tags.map(tag => onTagClick
               ? <button type="button" className="tag-chip" key={tag} onClick={() => onTagClick(tag)} title={`Filtrer sur « ${tag} »`}>{tag}</button>
               : <span className="tag-chip" key={tag}>{tag}</span>)}</div>}

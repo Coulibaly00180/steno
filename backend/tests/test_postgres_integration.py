@@ -177,6 +177,14 @@ def test_library_full_text_search_ignores_accents_and_matches_prefixes(pg_engine
     assert ids("budget roadmap") == []        # every word must match
     assert ids("l'équipe & | !") == []        # operators never reach to_tsquery
     assert ids("07") == []                    # "[00:00:07]" timestamps are not indexed
+    # Snippets are cut in the database, accent-insensitively, and located in the shown text.
+    row = client.get("/videos", params={"q": "previsionnel"}).json()[0]
+    snippet = row["snippet"]
+    assert snippet["text"] == "Le budget prévisionnel est validé … Fin"
+    assert [snippet["text"][a:b] for a, b in snippet["ranges"]] == ["prévisionnel"]
+    assert snippet["start_seconds"] == 0.0 and snippet["source"] == "transcript"
+    row = client.get("/videos", params={"q": "trimestrielle"}).json()[0]
+    assert row["snippet"]["source"] == "translation" and row["snippet"]["text"] == "Feuille de route trimestrielle"
 
 
 def test_semantic_search_with_pgvector(pg_engine, monkeypatch):

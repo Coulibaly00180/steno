@@ -86,7 +86,31 @@ def _duration(seconds: float) -> str:
     return f"{minutes // 60} h {minutes % 60:02d}" if minutes >= 60 else f"{minutes} min"
 
 
-def build_report(db, video: Video, *, include_transcript: bool = True) -> Report:
+_TRANSLATED_LINE = re.compile(r"^\[(\d{1,2}:\d{2}(?::\d{2})?)\]\s*(.*)$")
+TRANSCRIPT_MODES = ("original", "translation", "none")
+
+
+def translated_rows(translated: str, labels: list[str]) -> list[tuple[str, str | None, str]]:
+    """(time, speaker, text) of each translated line; a "Name : " prefix counts only if it is a known speaker."""
+    known = {label.casefold(): label for label in labels}
+    rows: list[tuple[str, str | None, str]] = []
+    for raw in translated.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        match = _TRANSLATED_LINE.match(line)
+        if not match:
+            if rows:  # a translated line the model wrapped
+                rows[-1] = (rows[-1][0], rows[-1][1], f"{rows[-1][2]} {line}")
+            continue
+        clock, rest = match.groups()
+        head, separator, tail = rest.partition(" : ")
+        speaker = known.get(head.strip().casefold()) if separator else None
+        rows.append((clock if clock.count(":") == 2 else f"00:{clock}", speaker, (tail if speaker else rest).strip()))
+    return rows
+
+
+def build_report(db, video: Video, *, transcript: str = "original") -> Report:
     summary = video.summaries[-1] if video.summaries else None
     template = db.get(SummaryTemplate, summary.template_id) if summary and summary.template_id else None
     details = [
@@ -96,6 +120,8 @@ def build_report(db, video: Video, *, include_transcript: bool = True) -> Report
     ]
     if video.detected_language:
         details.append(("Langue parlée", video.detected_language.upper()))
+    if transcript == "translation" and video.target_language:
+        details.append(("Transcription en annexe", f"traduite ({video.target_language})"))
     if template:
         details.append(("Modèle de compte-rendu", template.name))
     details.append(("Document généré le", datetime.now(timezone.utc).strftime("%d/%m/%Y à %H:%M UTC")))
@@ -114,10 +140,14 @@ def build_report(db, video: Video, *, include_transcript: bool = True) -> Report
         speakers=speakers,
         summary=markdown_blocks(summary.content_markdown) if summary else [],
         chapters=[(timestamp(chapter.start_seconds), chapter.title) for chapter in video.chapters],
-        transcript=[
-            (timestamp(segment.start_seconds), labels.get(segment.speaker_id), segment.text)
-            for segment in video.segments
-        ] if include_transcript else [],
+        transcript=(
+            translated_rows(video.translated_text or "", list(labels.values()))
+            if transcript == "translation"
+            else [
+                (timestamp(segment.start_seconds), labels.get(segment.speaker_id), segment.text)
+                for segment in video.segments
+            ] if transcript == "original" else []
+        ),
     )
 
 

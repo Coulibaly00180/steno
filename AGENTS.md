@@ -67,6 +67,7 @@ Vérifier que le GPU est bien utilisé : `docker compose exec worker python -c "
 | État du système | `backend/app/status.py` (`/status` ; `/ready` reste le healthcheck Docker) |
 | File d'attente, estimations, annulation | `backend/app/queue_info.py`, `POST /jobs/{id}/cancel` (`main.py`), `JobCancelled` (`worker.py`) |
 | Recherche sémantique : passages, embeddings, indexation, questions sur plusieurs vidéos | `backend/app/retrieval.py`, `index_video` et `run_index` (`worker.py`, file secondaire `video-ai-index`), `/library/chat/stream` (`main.py`), page `frontend/app/ask/` |
+| Conversations enregistrées (`/library/conversations`), réponses interrompues conservées (`keep()` dans les flux SSE de `main.py`) | `main.py` ; tables `library_conversations` et `library_messages` |
 | Bibliothèque (recherche plein texte PostgreSQL, filtres, tags) | `list_videos` et tags dans `main.py` ; colonne `search_vector` créée par la migration 0005 uniquement (voir `app.schema.MIGRATION_ONLY_OBJECTS`) |
 | Page vidéo | `frontend/app/videos/[id]/page.tsx` et `frontend/components/` |
 

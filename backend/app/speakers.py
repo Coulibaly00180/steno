@@ -4,6 +4,8 @@ With speakers, every transcript line reads "[hh:mm:ss] Name : text": the
 summaries, the chat, the search and the exports all see who speaks, and a
 renamed speaker only needs the transcript to be rebuilt.
 """
+import re
+
 from .models import Speaker, TranscriptSegment, Video
 from .utils import timestamp
 
@@ -11,6 +13,14 @@ from .utils import timestamp
 def segment_line(segment: TranscriptSegment, labels: dict[int, str]) -> str:
     label = labels.get(segment.speaker_id) if segment.speaker_id is not None else None
     return f"[{timestamp(segment.start_seconds)}] {label} : {segment.text}" if label else f"[{timestamp(segment.start_seconds)}] {segment.text}"
+
+
+def relabel_translation(translated: str | None, old: str, new: str) -> str | None:
+    """The translation carries speaker names too: a renamed speaker changes them there as well."""
+    if not translated or old == new:
+        return translated
+    line_start = re.compile(r"^(\[[\d:]+\]\s*)" + re.escape(old) + r" : ", re.MULTILINE)
+    return line_start.sub(lambda match: f"{match.group(1)}{new} : ", translated)
 
 
 def speaker_labels(video: Video) -> dict[int, str]:

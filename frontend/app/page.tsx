@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
-import { API, api, formatDuration, responseError } from "../lib/api";
+import { api, formatBytes, formatDuration, uploadForm } from "../lib/api";
 import { Icon } from "../components/Icons";
 import VideoTable from "../components/VideoTable";
 import { useSystemStatus } from "../lib/status";
@@ -16,7 +16,8 @@ const MAX_BATCH_FILES = 50;
 
 type Template = { id: string; name: string; description?: string; is_default: boolean };
 type Job = { id: string; video_id: string };
-type UploadState = { state: "waiting" | "uploading" | "done" | "error"; message?: string; videoId?: string };
+// While "uploading": bytes sent so far, and when the file started (for the speed).
+type UploadState = { state: "waiting" | "uploading" | "done" | "error"; message?: string; videoId?: string; loaded?: number; total?: number; startedAt?: number };
 type PendingFile = { key: string; file: File; upload: UploadState };
 
 function sizeLabel(bytes: number) {
@@ -41,10 +42,34 @@ function StatusBanner({ status }: { status: ReturnType<typeof useSystemStatus>["
 }
 
 function uploadLabel(upload: UploadState) {
-  if (upload.state === "uploading") return "Envoi…";
+  if (upload.state === "uploading") return upload.total && (upload.loaded ?? 0) >= upload.total ? "Vérification du fichier…" : "Envoi…";
   if (upload.state === "done") return "Ajouté à la file";
   if (upload.state === "error") return upload.message || "Échec de l'envoi";
   return null;
+}
+
+/** Files done and bytes sent across the whole batch. */
+function BatchBar({ files }: { files: PendingFile[] }) {
+  const total = files.reduce((sum, item) => sum + item.file.size, 0);
+  const sent = files.reduce((sum, item) => sum + (item.upload.state === "done" ? item.file.size : item.upload.state === "uploading" ? item.upload.loaded ?? 0 : 0), 0);
+  const done = files.filter(item => item.upload.state === "done").length;
+  const percent = total ? Math.min(100, Math.floor((100 * sent) / total)) : 0;
+  return <div className="upload-progress batch">
+    <div className="progress-track small" role="progressbar" aria-label="Progression du lot" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><div style={{ width: `${percent}%` }} /></div>
+    <span className="mono upload-figures">Lot : {done} / {files.length} fichiers · {formatBytes(sent)} / {formatBytes(total)} · {percent} %</span>
+  </div>;
+}
+
+/** Bytes sent, percentage and speed of the file being uploaded. */
+function UploadBar({ upload }: { upload: UploadState }) {
+  const loaded = upload.loaded ?? 0, total = upload.total ?? 0;
+  const percent = total ? Math.min(100, Math.floor((100 * loaded) / total)) : 0;
+  const seconds = upload.startedAt ? (performance.now() - upload.startedAt) / 1000 : 0;
+  const speed = seconds > 1 ? loaded / seconds : 0;
+  return <div className="upload-progress">
+    <div className="progress-track small" role="progressbar" aria-label="Progression de l'envoi" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}><div style={{ width: `${percent}%` }} /></div>
+    <span className="mono upload-figures">{formatBytes(loaded)} / {formatBytes(total)} · {percent} %{speed ? ` · ${formatBytes(speed)}/s` : ""}</span>
+  </div>;
 }
 
 export default function Home() {
@@ -70,6 +95,7 @@ export default function Home() {
   const [batchResult, setBatchResult] = useState("");
   const { status } = useSystemStatus();
   const recent = useVideoList("limit=8");
+  const uploadAbort = useRef<AbortController | null>(null);
 
   useEffect(() => {
     api<Template[]>("/templates").then(rows => {
@@ -143,17 +169,19 @@ export default function Home() {
     if (vocabulary.trim()) form.append("vocabulary", vocabulary.trim());
     form.append("use_global_glossary", useGlossary && glossaryCount !== 0 ? "true" : "false");
     if (diarize) { form.append("diarize", "true"); if (numSpeakers) form.append("num_speakers", numSpeakers); }
-    setUpload(item.key, { state: "uploading" });
+    const startedAt = performance.now();
+    setUpload(item.key, { state: "uploading", loaded: 0, total: item.file.size, startedAt });
+    const controller = new AbortController();
+    uploadAbort.current = controller;
     try {
-      const response = await fetch(`${API}/videos`, { method: "POST", body: form });
-      if (!response.ok) throw await responseError(response);
-      const job: Job = await response.json();
+      const job = await uploadForm<Job>("/videos", form, (loaded, total) => setUpload(item.key, { state: "uploading", loaded, total, startedAt }), controller.signal);
       setUpload(item.key, { state: "done", videoId: job.video_id });
       return job;
     } catch (reason) {
-      setUpload(item.key, { state: "error", message: reason instanceof Error ? reason.message : String(reason) });
+      if (reason instanceof DOMException && reason.name === "AbortError") setUpload(item.key, { state: "error", message: "Envoi annulé" });
+      else setUpload(item.key, { state: "error", message: reason instanceof Error ? reason.message : String(reason) });
       return null;
-    }
+    } finally { uploadAbort.current = null; }
   }
 
   async function submit(event: FormEvent) {
@@ -187,9 +215,11 @@ export default function Home() {
       </button> : <div className={`file-list${dragging ? " dragging" : ""}`} onDragEnter={event => { event.preventDefault(); setDragging(true); }} onDragOver={event => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={drop}>
         {files.map(item => { const label = uploadLabel(item.upload); return <div className={`file-card upload-${item.upload.state}`} key={item.key}>
           <span className="file-icon"><Icon name={isAudio(item.file) ? "audio" : "video"} size={19}/></span>
-          <div className="file-info"><div className="file-name">{item.upload.state === "done" && item.upload.videoId ? <Link href={`/videos/${item.upload.videoId}`}>{item.file.name}</Link> : item.file.name}</div><div className="file-meta">{sizeLabel(item.file.size)}{single && fileDuration !== null ? ` · ${formatDuration(fileDuration).replace(/^00:/, "")}` : ""}{label && <span className={`upload-state ${item.upload.state}`}> · {label}</span>}</div></div>
+          <div className="file-info"><div className="file-name">{item.upload.state === "done" && item.upload.videoId ? <Link href={`/videos/${item.upload.videoId}`}>{item.file.name}</Link> : item.file.name}</div><div className="file-meta">{sizeLabel(item.file.size)}{single && fileDuration !== null ? ` · ${formatDuration(fileDuration).replace(/^00:/, "")}` : ""}{label && <span className={`upload-state ${item.upload.state}`}> · {label}</span>}</div>{item.upload.state === "uploading" && <UploadBar upload={item.upload} />}</div>
+          {item.upload.state === "uploading" && <button type="button" className="btn small" onClick={() => uploadAbort.current?.abort()}>Annuler l&apos;envoi</button>}
           {item.upload.state !== "uploading" && item.upload.state !== "done" && <button type="button" className="icon-btn" aria-label={`Retirer ${item.file.name}`} onClick={() => removeFile(item.key)} disabled={busy}><Icon name="close" size={14}/></button>}
         </div>; })}
+        {busy && files.length > 1 && <BatchBar files={files} />}
         <div className="file-list-actions"><span className="field-hint">{files.length} fichier{files.length > 1 ? "s" : ""} · les mêmes réglages s&apos;appliquent à tous</span><button type="button" className="btn" onClick={() => fileInput.current?.click()} disabled={busy || files.length >= MAX_BATCH_FILES}>Ajouter des fichiers</button></div>
       </div>}
 

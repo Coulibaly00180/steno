@@ -3,6 +3,7 @@ import json
 import mimetypes
 import re
 import shutil
+import unicodedata
 import uuid
 import logging
 from urllib.parse import quote
@@ -18,7 +19,7 @@ from redis import Redis
 from rq import Queue
 from rq.command import send_stop_job_command
 from rq.job import Job as RQJob
-from sqlalchemy import and_, delete, desc, exists, func, literal_column, or_, select, text
+from sqlalchemy import and_, case, delete, desc, exists, func, literal_column, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only, selectinload
 
@@ -65,7 +66,8 @@ from .models import (
     video_tags,
 )
 from .reports import build_report, render_docx, render_pdf
-from .speakers import build_transcript, speakers_payload
+from .reports import TRANSCRIPT_MODES
+from .speakers import build_transcript, relabel_translation, speakers_payload
 from .queue_info import ACTIVE_JOB_STATUSES, QueueInfo, queue_snapshot
 from .schema import assert_schema_current
 from .schemas import (
@@ -253,6 +255,94 @@ def _search_condition(db, words: list[str]):
     return and_(*[or_(*[column.contains(word, autoescape=True) for column in columns]) for word in words]), None
 
 
+# Snippets around the matched words (n°17) are cut in the database: a 6-hour
+# transcript never travels to the API. Only the best-ranked results get one.
+SNIPPET_RESULTS = 30
+SNIPPET_BEFORE = 100
+SNIPPET_LENGTH = 320
+SNIPPET_MAX_RANGES = 12
+_CLOCK = re.compile(r"\[(\d{1,2}):(\d{2}):(\d{2})\]")
+
+
+def fold_with_origin(value: str) -> tuple[str, list[int]]:
+    """Lower-cased, accent-free text and, for each character of it, its index in `value`."""
+    folded: list[str] = []
+    origin: list[int] = []
+    for index, char in enumerate(value):
+        piece = "".join(c for c in unicodedata.normalize("NFD", char) if not unicodedata.combining(c)).casefold()
+        folded.append(piece)
+        origin.extend([index] * len(piece))
+    return "".join(folded), origin
+
+
+def build_snippet(fragment: str, fragment_start: int, match_offset: int, words: list[str], source: str) -> dict:
+    """Readable extract of a raw transcript fragment: no timestamps, matched words located.
+
+    `fragment_start` is the 1-based position of the fragment in the whole text and
+    `match_offset` the position of the first hit inside it.
+    """
+    before = fragment[:max(0, match_offset)]
+    clocks = list(_CLOCK.finditer(before)) or list(_CLOCK.finditer(fragment))
+    start_seconds = None
+    if clocks:
+        pick = clocks[-1]
+        start_seconds = float(int(pick.group(1)) * 3600 + int(pick.group(2)) * 60 + int(pick.group(3)))
+    text = " ".join(_CLOCK.sub(" ", fragment.replace("\n", " … ")).split())
+    lead = ""
+    if fragment_start > 1 and " " in text:
+        text, lead = text.split(" ", 1)[1], "… "  # the fragment starts inside a word
+    tail = ""
+    if len(fragment) >= SNIPPET_LENGTH and " " in text:
+        text, tail = text.rsplit(" ", 1)[0], " …"
+    folded, origin = fold_with_origin(text)
+    ranges: list[list[int]] = []
+    for word in words:
+        needle, _ = fold_with_origin(word)
+        for hit in re.finditer(r"(?<!\w)" + re.escape(needle) + r"\w*", folded):
+            ranges.append([len(lead) + origin[hit.start()], len(lead) + origin[hit.end() - 1] + 1])
+    ranges.sort()
+    return {
+        "text": f"{lead}{text}{tail}", "ranges": ranges[:SNIPPET_MAX_RANGES], "source": source, "start_seconds": start_seconds,
+    }
+
+
+def _snippets(db, video_ids: list[str], words: list[str]) -> dict[str, dict]:
+    """First matched passage of each video, from its transcript, else from its translation."""
+    if not video_ids or not words:
+        return {}
+    postgres = db.get_bind().dialect.name == "postgresql"
+
+    def first_hit(column):
+        # Position of the first word found, tried in the order typed. Accents are
+        # ignored as in the search itself (PostgreSQL only: SQLite is the unit-test fallback).
+        haystack = func.lower(func.f_unaccent(func.coalesce(column, ""))) if postgres else func.lower(func.coalesce(column, ""))
+        locate = func.strpos if postgres else func.instr
+        needles = [fold_with_origin(word)[0] if postgres else word for word in words]
+        # The trailing 0 also keeps coalesce() at two arguments or more, as SQLite requires.
+        return func.coalesce(*[func.nullif(locate(haystack, needle), 0) for needle in needles], 0)
+
+    hits = select(
+        Video.id.label("id"), first_hit(Video.transcript_text).label("pt"), first_hit(Video.translated_text).label("pl")
+    ).where(Video.id.in_(video_ids)).subquery()
+
+    def fragment(column, position):
+        start = case((position > SNIPPET_BEFORE, position - SNIPPET_BEFORE), else_=1)
+        return start, func.substr(column, start, SNIPPET_LENGTH)
+
+    t_start, t_fragment = fragment(Video.transcript_text, hits.c.pt)
+    l_start, l_fragment = fragment(Video.translated_text, hits.c.pl)
+    rows = db.execute(
+        select(hits.c.id, hits.c.pt, hits.c.pl, t_start, t_fragment, l_start, l_fragment).join(Video, Video.id == hits.c.id)
+    ).all()
+    snippets: dict[str, dict] = {}
+    for video_id, pt, pl, ts, tf, ls, lf in rows:
+        if pt:
+            snippets[video_id] = build_snippet(tf or "", ts, pt - ts, words, "transcript")
+        elif pl:
+            snippets[video_id] = build_snippet(lf or "", ls, pl - ls, words, "translation")
+    return snippets
+
+
 @app.get("/videos", response_model=list[VideoListItem])
 def list_videos(
     q: str | None = Query(None, max_length=200),
@@ -293,6 +383,7 @@ def list_videos(
             if rank is not None:
                 order.insert(0, desc(rank))
         videos = list(db.scalars(query.order_by(*order).limit(limit)))
+        snippets = _snippets(db, [video.id for video in videos[:SNIPPET_RESULTS]], words)
         jobs = _latest_jobs(db, [video.id for video in videos])
         snapshot = queue_snapshot(db)
         return [
@@ -306,6 +397,7 @@ def list_videos(
                 "target_language": video.target_language,
                 "created_at": video.created_at,
                 "tags": [tag_row.name for tag_row in video.tags],
+                "snippet": snippets.get(video.id),
                 "job": _job_payload(jobs.get(video.id), snapshot),
             }
             for video in videos
@@ -1242,7 +1334,9 @@ def rename_speaker(video_id: str, speaker_id: int, payload: SpeakerRenameIn):
         if name and any(s.id != speaker.id and s.label.casefold() == name.casefold() for s in video.speakers):
             raise HTTPException(409, "Un autre intervenant porte déjà ce nom ; fusionnez-les plutôt")
         if speaker.name != name:
+            old_label = speaker.label
             speaker.name = name
+            video.translated_text = relabel_translation(video.translated_text, old_label, speaker.label)
             _save_transcript_edit(db, video)
         return {"speakers": speakers_payload(video)}
 
@@ -1260,15 +1354,16 @@ def merge_speaker(video_id: str, speaker_id: int, payload: SpeakerMergeIn):
         for segment in video.segments:
             if segment.speaker_id == source.id:
                 segment.speaker_id = target.id
+        video.translated_text = relabel_translation(video.translated_text, source.label, target.label)
         video.speakers.remove(source)
         _save_transcript_edit(db, video)
         return {"speakers": speakers_payload(video)}
 
 
 @app.get("/videos/{video_id}/exports/{name}")
-def export(video_id: str, name: str):
+def export(video_id: str, name: str, transcript: str = Query("original", max_length=16)):
     if name in REPORT_TYPES:
-        return _report(video_id, name)
+        return _report(video_id, name, transcript)
     if name not in EXPORT_NAMES:
         raise HTTPException(404, "Export inconnu")
     path = settings.exports_dir / video_id / name
@@ -1537,21 +1632,29 @@ def delete_conversation(conversation_id: str):
     return {"deleted": True}
 
 
-def _report(video_id: str, name: str) -> Response:
-    """Meeting report (n°20), rendered from the current state: never stale."""
+def _report(video_id: str, name: str, transcript: str = "original") -> Response:
+    """Meeting report (n°20), rendered from the current state: never stale.
+
+    `transcript` picks the annex: the original transcript, its translation, or none.
+    """
+    if transcript not in TRANSCRIPT_MODES:
+        raise HTTPException(422, "Annexe inconnue : original, translation ou none")
     media_type, render = REPORT_TYPES[name]
     with SessionLocal() as db:
         video = _video_or_404(db, video_id)
         if video.status != "COMPLETED":
             raise HTTPException(404, "Export non disponible")
-        report = build_report(db, video)
+        if transcript == "translation" and not video.translated_text:
+            raise HTTPException(404, "Aucune traduction disponible")
+        report = build_report(db, video, transcript=transcript)
     content = render(report)
     # ASCII fallback for old clients, the real name in filename* (RFC 5987).
     stem = re.sub(r"[^\w\- ]+", "_", report.title)[:80].strip() or "compte-rendu"
     extension = name.rsplit(".", 1)[1]
     ascii_name = stem.encode("ascii", "ignore").decode() or "compte-rendu"
+    kind = "compte-rendu (traduit)" if transcript == "translation" else "compte-rendu"
     disposition = (
-        f'attachment; filename="{ascii_name} - compte-rendu.{extension}"; '
-        f"filename*=UTF-8''{quote(f'{stem} - compte-rendu.{extension}')}"
+        f'attachment; filename="{ascii_name} - {kind}.{extension}"; '
+        f"filename*=UTF-8''{quote(f'{stem} - {kind}.{extension}')}"
     )
     return Response(content, media_type=media_type, headers={"Content-Disposition": disposition})

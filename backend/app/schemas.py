@@ -110,8 +110,19 @@ class VideoOut(BaseModel):
     created_at: datetime
 
 
+class SnippetOut(BaseModel):
+    """Passage around the words a library search matched (n°17)."""
+
+    text: str
+    # [start, end) character ranges of the matched words in `text`.
+    ranges: list[list[int]]
+    source: str  # "transcript" or "translation"
+    start_seconds: float | None = None
+
+
 class VideoListItem(VideoOut):
     tags: list[str] = []
+    snippet: SnippetOut | None = None
     job: JobOut | None = None
 
 
