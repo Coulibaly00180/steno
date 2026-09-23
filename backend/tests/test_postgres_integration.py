@@ -218,3 +218,53 @@ def test_semantic_search_with_pgvector(pg_engine, monkeypatch):
         assert hits[0].video_id == "b" and hits[0].distance < hits[1].distance
         assert retrieval.search(db, ["a"], fake_embedding("budget voté"), limit=1)[0].text == "[00:00:00] Le budget annuel est voté"
         assert db.execute(text("SELECT extversion FROM pg_extension WHERE extname = 'vector'")).scalar_one()
+
+
+def test_backup_and_restore_round_trip(monkeypatch, tmp_path):
+    """Real pg_dump and pg_restore (n°13), on a scratch database: never the tests' own."""
+    from sqlalchemy.engine import make_url
+
+    from app import backups
+
+    url = make_url(settings.database_url)
+    scratch = "steno_restore_check"
+    admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+
+    def recreate(*names):
+        with admin.connect() as connection:
+            for name in names:
+                connection.execute(text(f"DROP DATABASE IF EXISTS {name}"))
+
+    recreate(scratch, f"{scratch}_restauration")
+    with admin.connect() as connection:
+        connection.execute(text(f"CREATE DATABASE {scratch}"))
+    scratch_url = url.set(database=scratch)
+    engine = create_engine(scratch_url)
+    try:
+        # The whole schema, extensions and generated column included.
+        migrate.migrate(engine)
+        with engine.begin() as connection:
+            connection.execute(text("INSERT INTO glossary_terms (term, position, created_at) VALUES ('Avant', 0, now())"))
+        engine.dispose()
+        monkeypatch.setattr(settings, "database_url", scratch_url.render_as_string(hide_password=False))
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
+
+        info = backups.create_backup("manuel")
+        with engine.begin() as connection:
+            connection.execute(text("UPDATE glossary_terms SET term = 'Après'"))
+        # A session still open on the database: the restore refuses.
+        with engine.connect():
+            with pytest.raises(backups.BackupError, match="docker compose stop"):
+                backups.restore(info.name, database=scratch)
+        engine.dispose()
+
+        report = backups.restore(info.name, database=scratch)
+        assert report["database"] == scratch
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT term FROM glossary_terms")).scalar_one() == "Avant"
+            assert connection.execute(text("SELECT count(*) FROM pg_extension WHERE extname IN ('vector', 'unaccent')")).scalar_one() == 2
+        engine.dispose()
+    finally:
+        engine.dispose()
+        recreate(scratch, f"{scratch}_restauration")
+        admin.dispose()

@@ -166,6 +166,8 @@ class VideoDetail(VideoOut):
     diarize: bool = False
     num_speakers: int | None = None
     diarization_error: str | None = None
+    # What happens to the media once processed (n°14): keep, audio, delete.
+    source_policy: str = "keep"
     speakers: list[SpeakerOut] = []
     segments: list[SegmentOut]
     summaries: list[SummaryOut]
@@ -252,3 +254,46 @@ class ReplaceIn(BaseModel):
 class ReplaceOut(BaseModel):
     replaced: int
     segments: int
+
+
+class GlossarySuggestionOut(BaseModel):
+    term: str
+    variants: list[str]
+    occurrences: int
+    videos: int
+
+
+class GlossaryTermIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    term: str = Field(min_length=1, max_length=60)
+
+
+class WatchFolderSettings(BaseModel):
+    """Defaults applied to the files dropped in the watched folder (n°9)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    enabled: bool = False
+    target_language: str | None = Field(default=None, max_length=32)
+    template_id: str | None = Field(default=None, max_length=36)
+    summary_length: str = "standard"
+    source_language: str | None = Field(default=None, max_length=8)
+    use_global_glossary: bool = True
+    diarize: bool = False
+    num_speakers: int | None = Field(default=None, ge=1, le=20)
+    source_policy: str = "keep"
+    tag: str | None = Field(default=None, max_length=40)
+
+
+class BackupSettings(BaseModel):
+    """Scheduled database backups (n°13)."""
+
+    enabled: bool = True
+    interval_hours: int = Field(default=24, ge=1, le=168)
+    keep: int = Field(default=7, ge=1, le=100)
+
+
+class StorageActionIn(BaseModel):
+    # "audio": compact audio only; "delete_media": text only; "delete_work_audio": the extracted WAV.
+    action: str = Field(max_length=32)

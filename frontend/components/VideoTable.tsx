@@ -119,7 +119,7 @@ export default function VideoTable({ videos, onChanged, onTagClick, empty = "Auc
           <Link href={`/videos/${video.id}`} className="analysis-cell analysis-lang">{language}</Link>
           <Link href={`/videos/${video.id}`} className="analysis-cell"><span className={`status-badge ${status.className}`}><i className={showProgress ? "pulse" : ""}/>{status.label}</span>
             {showProgress && <div className="mini-progress"><div className="mini-track"><i style={{ width: `${job!.progress}%` }}/></div><div className="mini-label">{stageLabels[job!.stage] || job!.stage} · {job!.progress}%</div></div>}
-            {active && video.status === "COMPLETED" && <div className="mini-label">Nouveau résumé · {job!.status === "QUEUED" ? "en attente" : `${job!.progress}%`}</div>}
+            {active && video.status === "COMPLETED" && <div className="mini-label">{job!.kind === "COMPACT" ? "Conversion audio" : job!.kind === "DIARIZE" ? "Intervenants" : "Nouveau résumé"} · {job!.status === "QUEUED" ? "en attente" : `${job!.progress}%`}</div>}
             {waiting && <div className="mini-label queue-label">{waiting}</div>}
           </Link>
           <Link href={`/videos/${video.id}`} className="analysis-cell analysis-date">{relativeDate(video.created_at)}</Link>

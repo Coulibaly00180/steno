@@ -19,6 +19,9 @@ from .config import QUEUE_NAME, settings
 from .db import engine
 from .schema import database_revision, head_revision
 
+# Written by the scheduler service (app.scheduler) while it runs.
+SCHEDULER_HEARTBEAT_KEY = "steno:scheduler:heartbeat"
+
 logger = logging.getLogger(__name__)
 
 CHECK_TIMEOUT_SECONDS = 2.5
@@ -74,6 +77,19 @@ def check_queue() -> dict:
             current_job_id=busy[0].get_current_job_id() if busy else None,
         ),
     }
+
+
+def check_scheduler() -> dict:
+    """The scheduler (watched folder, backups) writes a heartbeat key that expires when it stops."""
+    redis = Redis.from_url(settings.redis_url, socket_connect_timeout=1, socket_timeout=1)
+    try:
+        alive = redis.exists(SCHEDULER_HEARTBEAT_KEY)
+    except Exception:
+        logger.warning("Status check: Redis unavailable for the scheduler heartbeat", exc_info=True)
+        return {"scheduler": _result("down", "état inconnu (Redis indisponible)")}
+    if not alive:
+        return {"scheduler": _result("down", "arrêté : dossier surveillé et sauvegardes inactifs")}
+    return {"scheduler": _result("ok", "actif")}
 
 
 def _model_tag(name: str) -> str:
@@ -138,9 +154,10 @@ async def system_status() -> dict:
         _run(check_database, ("database",)),
         _run(check_queue, ("redis", "worker")),
         _run(check_ollama, ("ollama", "model", "embedding")),
+        _run(check_scheduler, ("scheduler",)),
     )
     services = {name: result for part in parts for name, result in part.items()}
-    ordered = {name: services[name] for name in ("database", "redis", "worker", "ollama", "model", "embedding")}
+    ordered = {name: services[name] for name in ("database", "redis", "worker", "scheduler", "ollama", "model", "embedding")}
     report = {
         "overall": _overall(ordered),
         "checked_at": datetime.now(timezone.utc).isoformat(),

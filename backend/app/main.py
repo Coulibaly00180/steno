@@ -8,6 +8,7 @@ import uuid
 import logging
 from urllib.parse import quote
 from contextlib import asynccontextmanager
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from sqlalchemy.orm import load_only, selectinload
 
 from .analysis_options import (
     DEFAULT_SUMMARY_LENGTH,
+    GLOSSARY_MAX_TERMS,
     SOURCE_LANGUAGES,
     SUMMARY_LENGTHS,
     TermsError,
@@ -37,7 +39,22 @@ from .analysis_options import (
     split_stored_terms,
     whisper_terms,
 )
+from . import app_settings, backups, portable, watch_folder
 from .config import QUEUE_NAME, settings
+from .learning import corrections_between, record_corrections, replacement_pair
+from .learning import dismiss as dismiss_suggestion
+from .learning import suggestions as glossary_suggestions
+from .storage import (
+    AUDIO_SUFFIXES,
+    COMPRESSED_AUDIO_SUFFIXES,
+    SOURCE_POLICIES,
+    VIDEO_SUFFIXES,
+    StorageError,
+    delete_media,
+    delete_work_audio,
+    disk_summary,
+    video_usage,
+)
 from .retrieval import Hit, embed_texts, merge_hits, ready_video_ids, retrieval_query, search
 from .db import SessionLocal, engine
 from .exports import EXPORT_NAMES, write_exports
@@ -71,6 +88,11 @@ from .speakers import build_transcript, relabel_translation, speakers_payload
 from .queue_info import ACTIVE_JOB_STATUSES, QueueInfo, queue_snapshot
 from .schema import assert_schema_current
 from .schemas import (
+    BackupSettings,
+    GlossarySuggestionOut,
+    GlossaryTermIn,
+    StorageActionIn,
+    WatchFolderSettings,
     ChatMessageOut,
     SegmentOut,
     SummaryOut,
@@ -115,9 +137,6 @@ INDEX_KIND = "INDEX"
 CUSTOM_PROMPT_MAX_CHARS = 2000
 DEFAULT_TEMPLATE_NAME = "Compte-rendu de réunion"
 TERMINAL_JOB_STATUSES = ("COMPLETED", "FAILED", "CANCELLED")
-# Ogg formats are what Wikimedia Commons and many free podcasts publish; ffmpeg reads them.
-AUDIO_SUFFIXES = {".mp3", ".m4a", ".wav", ".flac", ".ogg", ".oga", ".opus"}
-VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi", ".ogv"}
 ERROR_JOB_IN_PROGRESS = "Un traitement est en cours pour cette vidéo ; réessayez à sa fin"
 ERROR_CHAT_UNAVAILABLE = "Assistant indisponible, réessayez ultérieurement"
 # Library filters (n°17): "ACTIVE" groups the videos waiting for or under processing.
@@ -152,6 +171,8 @@ async def lifespan(app: FastAPI):
     settings.uploads_dir.mkdir(parents=True, exist_ok=True)
     settings.audio_dir.mkdir(parents=True, exist_ok=True)
     settings.exports_dir.mkdir(parents=True, exist_ok=True)
+    settings.inbox_dir.mkdir(parents=True, exist_ok=True)
+    settings.backups_dir.mkdir(parents=True, exist_ok=True)
     assert_schema_current(engine)
     with SessionLocal() as db:
         # Migration 0002 installs the starter templates; this only covers an
@@ -404,28 +425,45 @@ def list_videos(
         ]
 
 
-@app.post("/videos", response_model=JobOut)
-async def upload_video(
-    file: UploadFile = File(...),
-    target_language: str | None = Form(None),
-    template_id: str | None = Form(None),
-    custom_prompt: str | None = Form(None),
-    summary_length: str | None = Form(None),
-    source_language: str | None = Form(None),
-    vocabulary: str | None = Form(None),
-    use_global_glossary: bool = Form(True),
-    diarize: bool = Form(False),
-    num_speakers: int | None = Form(None),
-):
-    video_id = str(uuid.uuid4())
-    original_filename = file.filename or "video.bin"
-    suffix = Path(original_filename).suffix.lower()
+@dataclass
+class ImportSettings:
+    """Validated options of a new import: the upload form and the watched folder (n°9) share them."""
+
+    target_language: str | None
+    template_id: str | None
+    custom_prompt: str | None
+    summary_length: str
+    source_language: str | None
+    video_terms: list[str]
+    glossary_snapshot: list[str]
+    diarize: bool
+    num_speakers: int | None
+    source_policy: str = "keep"
+    tags: list[str] = field(default_factory=list)
+
+
+def media_suffix(filename: str) -> str:
+    suffix = Path(filename).suffix.lower()
     if suffix not in VIDEO_SUFFIXES | AUDIO_SUFFIXES:
         raise HTTPException(400, "Format de fichier non pris en charge")
+    return suffix
 
-    if len(original_filename) > 255:
-        raise HTTPException(422, "Le nom du fichier ne peut pas dépasser 255 caractères")
 
+def import_settings(
+    *,
+    target_language: str | None,
+    template_id: str | None,
+    custom_prompt: str | None,
+    summary_length: str | None,
+    source_language: str | None,
+    vocabulary: str | None,
+    use_global_glossary: bool,
+    diarize: bool,
+    num_speakers: int | None,
+    source_policy: str | None = None,
+    tag: str | None = None,
+) -> ImportSettings:
+    """Check the options; raises HTTPException with the message shown to the user."""
     normalized_target_language = (target_language or "").strip() or None
     if normalized_target_language and len(normalized_target_language) > 32:
         raise HTTPException(422, "La langue cible ne peut pas dépasser 32 caractères")
@@ -451,6 +489,11 @@ async def upload_video(
     if num_speakers is not None and not 1 <= num_speakers <= MAX_SPEAKERS:
         raise HTTPException(422, f"Nombre d'intervenants : entre 1 et {MAX_SPEAKERS}")
 
+    normalized_policy = (source_policy or "").strip() or "keep"
+    if normalized_policy not in SOURCE_POLICIES:
+        raise HTTPException(422, "Règle de conservation des médias inconnue")
+    tags = parse_tags([tag]) if tag else []
+
     glossary_snapshot: list[str] = []
     if use_global_glossary:
         try:
@@ -473,8 +516,139 @@ async def upload_video(
             logger.exception("Unable to validate summary template %s", normalized_template_id)
             raise HTTPException(503, "Service de données indisponible")
 
-    stored_name = f"{video_id}{suffix}"
-    destination = settings.uploads_dir / stored_name
+    return ImportSettings(
+        target_language=normalized_target_language,
+        template_id=normalized_template_id,
+        custom_prompt=normalized_custom_prompt,
+        summary_length=normalized_summary_length,
+        source_language=normalized_source_language,
+        video_terms=video_terms,
+        glossary_snapshot=glossary_snapshot,
+        diarize=diarize,
+        num_speakers=num_speakers if diarize else None,
+        source_policy=normalized_policy,
+        tags=tags,
+    )
+
+
+def create_import(destination: Path, original_filename: str, options: ImportSettings, video_id: str) -> ProcessingJob:
+    """Probe the stored file, create the video and its job, queue it.
+
+    The caller owns `destination`: it removes it (upload) or sets it aside
+    (watched folder) when this raises.
+    """
+    try:
+        duration = ffprobe_duration(destination, timeout_seconds=settings.ffprobe_timeout_seconds)
+    except Exception:
+        raise HTTPException(400, "Fichier multimédia invalide ou illisible par ffprobe")
+
+    if duration > settings.max_video_hours * 3600:
+        raise HTTPException(400, f"Durée maximale: {settings.max_video_hours:g} heures")
+
+    job_id = str(uuid.uuid4())
+    try:
+        with SessionLocal() as db:
+            video = Video(
+                id=video_id,
+                filename=destination.name,
+                original_filename=original_filename,
+                path=str(destination),
+                duration_seconds=duration,
+                size_bytes=destination.stat().st_size,
+                status="QUEUED",
+                target_language=options.target_language,
+                detected_language=options.source_language,
+                source_language_forced=options.source_language is not None,
+                vocabulary=join_terms(options.video_terms),
+                # Frozen at import: later glossary edits never change this video (F-11.13).
+                glossary_snapshot=join_terms(options.glossary_snapshot),
+                diarize=options.diarize,
+                num_speakers=options.num_speakers,
+                source_policy=options.source_policy,
+            )
+            if options.tags:
+                existing = {
+                    tag.name.casefold(): tag
+                    for tag in db.scalars(select(Tag).where(func.lower(Tag.name).in_([name.lower() for name in options.tags])))
+                }
+                video.tags = [existing.get(name.casefold()) or Tag(name=name) for name in options.tags]
+            job = ProcessingJob(
+                id=job_id,
+                video_id=video_id,
+                stage="QUEUED",
+                status="QUEUED",
+                progress=0,
+                template_id=options.template_id,
+                custom_prompt=options.custom_prompt,
+                summary_length=options.summary_length,
+            )
+            # ProcessingJob has a database foreign key to Video but no ORM
+            # relationship.  Flush the parent explicitly so PostgreSQL cannot
+            # receive the child INSERT first (SQLite's default test setup does
+            # not enforce this ordering).
+            db.add(video)
+            db.flush()
+            db.add(job)
+            db.commit()
+
+            try:
+                queue = Queue(QUEUE_NAME, connection=Redis.from_url(settings.redis_url), default_timeout=21600)
+                rq_job = queue.enqueue("app.worker.run_pipeline", job_id, job_timeout=21600, result_ttl=86400)
+            except Exception as exc:
+                logger.warning("Unable to enqueue processing job %s: %s", job_id, exc)
+                db.delete(job)
+                db.delete(video)
+                db.flush()
+                _delete_orphan_tags(db)
+                db.commit()
+                raise HTTPException(503, "Service de traitement indisponible, réessayez ultérieurement") from exc
+
+            job.rq_job_id = rq_job.id
+            db.commit()
+            db.refresh(job)
+            return job
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Unable to create upload records")
+        raise HTTPException(500, "Impossible de créer le traitement vidéo")
+
+
+@app.post("/videos", response_model=JobOut)
+async def upload_video(
+    file: UploadFile = File(...),
+    target_language: str | None = Form(None),
+    template_id: str | None = Form(None),
+    custom_prompt: str | None = Form(None),
+    summary_length: str | None = Form(None),
+    source_language: str | None = Form(None),
+    vocabulary: str | None = Form(None),
+    use_global_glossary: bool = Form(True),
+    diarize: bool = Form(False),
+    num_speakers: int | None = Form(None),
+    source_policy: str | None = Form(None),
+):
+    video_id = str(uuid.uuid4())
+    original_filename = file.filename or "video.bin"
+    suffix = media_suffix(original_filename)
+
+    if len(original_filename) > 255:
+        raise HTTPException(422, "Le nom du fichier ne peut pas dépasser 255 caractères")
+
+    options = import_settings(
+        target_language=target_language,
+        template_id=template_id,
+        custom_prompt=custom_prompt,
+        summary_length=summary_length,
+        source_language=source_language,
+        vocabulary=vocabulary,
+        use_global_glossary=use_global_glossary,
+        diarize=diarize,
+        num_speakers=num_speakers,
+        source_policy=source_policy,
+    )
+
+    destination = settings.uploads_dir / f"{video_id}{suffix}"
     bytes_written = 0
     try:
         with destination.open("wb") as out:
@@ -497,75 +671,10 @@ async def upload_video(
         await file.close()
 
     try:
-        duration = ffprobe_duration(destination, timeout_seconds=settings.ffprobe_timeout_seconds)
-    except Exception:
+        return create_import(destination, original_filename, options, video_id)
+    except BaseException:
         destination.unlink(missing_ok=True)
-        raise HTTPException(400, "Fichier multimédia invalide ou illisible par ffprobe")
-
-    if duration > settings.max_video_hours * 3600:
-        destination.unlink(missing_ok=True)
-        raise HTTPException(400, f"Durée maximale: {settings.max_video_hours:g} heures")
-
-    job_id = str(uuid.uuid4())
-    try:
-        with SessionLocal() as db:
-            video = Video(
-                id=video_id,
-                filename=stored_name,
-                original_filename=original_filename,
-                path=str(destination),
-                duration_seconds=duration,
-                size_bytes=destination.stat().st_size,
-                status="QUEUED",
-                target_language=normalized_target_language,
-                detected_language=normalized_source_language,
-                source_language_forced=normalized_source_language is not None,
-                vocabulary=join_terms(video_terms),
-                # Frozen at import: later glossary edits never change this video (F-11.13).
-                glossary_snapshot=join_terms(glossary_snapshot),
-                diarize=diarize,
-                num_speakers=num_speakers if diarize else None,
-            )
-            job = ProcessingJob(
-                id=job_id,
-                video_id=video_id,
-                stage="QUEUED",
-                status="QUEUED",
-                progress=0,
-                template_id=normalized_template_id,
-                custom_prompt=normalized_custom_prompt,
-                summary_length=normalized_summary_length,
-            )
-            # ProcessingJob has a database foreign key to Video but no ORM
-            # relationship.  Flush the parent explicitly so PostgreSQL cannot
-            # receive the child INSERT first (SQLite's default test setup does
-            # not enforce this ordering).
-            db.add(video)
-            db.flush()
-            db.add(job)
-            db.commit()
-
-            try:
-                queue = Queue(QUEUE_NAME, connection=Redis.from_url(settings.redis_url), default_timeout=21600)
-                rq_job = queue.enqueue("app.worker.run_pipeline", job_id, job_timeout=21600, result_ttl=86400)
-            except Exception as exc:
-                logger.warning("Unable to enqueue processing job %s: %s", job_id, exc)
-                db.delete(job)
-                db.delete(video)
-                db.commit()
-                destination.unlink(missing_ok=True)
-                raise HTTPException(503, "Service de traitement indisponible, réessayez ultérieurement") from exc
-
-            job.rq_job_id = rq_job.id
-            db.commit()
-            db.refresh(job)
-            return job
-    except HTTPException:
         raise
-    except Exception:
-        destination.unlink(missing_ok=True)
-        logger.exception("Unable to create upload records")
-        raise HTTPException(500, "Impossible de créer le traitement vidéo")
 
 
 @app.get("/videos/{video_id}", response_model=VideoDetail)
@@ -618,6 +727,7 @@ def get_video(video_id: str):
             "diarize": video.diarize,
             "num_speakers": video.num_speakers,
             "diarization_error": video.diarization_error,
+            "source_policy": video.source_policy,
             "speakers": speakers_payload(video),
             "segments": video.segments,
             "summaries": [
@@ -1116,6 +1226,45 @@ def replace_glossary(payload: GlossaryIn):
     return {"terms": terms}
 
 
+@app.get("/glossary/suggestions", response_model=list[GlossarySuggestionOut])
+def list_glossary_suggestions():
+    """Terms corrected by hand several times, not in the glossary yet (n°2)."""
+    with SessionLocal() as db:
+        return [asdict(suggestion) for suggestion in glossary_suggestions(db)]
+
+
+@app.post("/glossary/suggestions/accept", response_model=GlossaryOut)
+def accept_glossary_suggestion(payload: GlossaryTermIn):
+    """Add a suggested term at the end of the global glossary, in one click."""
+    try:
+        term = parse_glossary([payload.term])[0]
+    except (TermsError, IndexError) as exc:
+        raise HTTPException(422, str(exc) or "Terme invalide") from exc
+    with SessionLocal() as db:
+        rows = list(db.scalars(select(GlossaryTerm).order_by(GlossaryTerm.position).with_for_update()))
+        if not any(row.term.casefold() == term.casefold() for row in rows):
+            if len(rows) >= GLOSSARY_MAX_TERMS:
+                raise HTTPException(409, f"Le glossaire est plein ({GLOSSARY_MAX_TERMS} termes) : retirez-en un d'abord")
+            db.add(GlossaryTerm(term=term, position=max((row.position for row in rows), default=-1) + 1))
+            try:
+                db.commit()
+            except IntegrityError:  # added meanwhile
+                db.rollback()
+    return {"terms": _glossary_terms()}
+
+
+@app.post("/glossary/suggestions/dismiss")
+def dismiss_glossary_suggestion(payload: GlossaryTermIn):
+    """Never suggest this term again."""
+    with SessionLocal() as db:
+        dismiss_suggestion(db, payload.term)
+        try:
+            db.commit()
+        except IntegrityError:  # dismissed meanwhile
+            db.rollback()
+    return {"dismissed": True}
+
+
 def _as_aware(value):
     """SQLite returns naive datetimes: compare everything as UTC."""
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
@@ -1144,9 +1293,17 @@ def _refuse_if_busy(db, video_id: str) -> None:
         raise HTTPException(409, ERROR_JOB_IN_PROGRESS)
 
 
+# The slim image has no /etc/mime.types: Python alone does not know these, and
+# some browsers refuse to play an "application/octet-stream" track.
+MEDIA_TYPES = {
+    ".m4a": "audio/mp4", ".m4v": "video/mp4", ".mkv": "video/x-matroska", ".ogv": "video/ogg",
+    ".flac": "audio/flac", ".ogg": "audio/ogg", ".oga": "audio/ogg", ".opus": "audio/ogg",
+}
+
+
 def _media_response(path: Path) -> FileResponse:
     # FileResponse answers HTTP Range requests: the player can seek anywhere.
-    media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    media_type = MEDIA_TYPES.get(path.suffix.lower()) or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     return FileResponse(path, media_type=media_type, headers={"Cache-Control": "private, max-age=3600"})
 
 
@@ -1253,6 +1410,8 @@ def edit_segment(video_id: str, segment_id: int, payload: SegmentEditIn):
             raise HTTPException(404, "Segment introuvable")
         changed = False
         if payload.text is not None and segment.text != payload.text:
+            # The glossary learns from the names fixed by hand (n°2).
+            record_corrections(db, video_id, [(misheard, term, 1) for misheard, term in corrections_between(segment.text, payload.text)])
             segment.text = payload.text
             changed = True
         if "speaker_id" in payload.model_fields_set and segment.speaker_id != payload.speaker_id:
@@ -1285,6 +1444,9 @@ def replace_in_transcript(video_id: str, payload: ReplaceIn):
                 replaced += count
                 changed += 1
         if replaced:
+            pair = replacement_pair(payload.find, payload.replace)
+            if pair:
+                record_corrections(db, video_id, [(*pair, replaced)])
             _save_transcript_edit(db, video)
         return {"replaced": replaced, "segments": changed}
 
@@ -1303,6 +1465,8 @@ def detect_speakers(video_id: str, payload: DiarizeIn):
         video = _video_or_404(db, video_id, lock=True)
         if video.status != "COMPLETED" or not video.transcript_text:
             raise HTTPException(409, "Les intervenants ne peuvent être identifiés qu'une fois la vidéo traitée")
+        if not Path(video.path).is_file() and not _audio_path(video_id).is_file():
+            raise HTTPException(409, "Les médias de cette vidéo ont été supprimés : les intervenants ne peuvent plus être identifiés")
         _refuse_if_busy(db, video_id)
         video.diarize = True
         video.num_speakers = payload.num_speakers
@@ -1658,3 +1822,231 @@ def _report(video_id: str, name: str, transcript: str = "original") -> Response:
         f"filename*=UTF-8''{quote(f'{stem} - {kind}.{extension}')}"
     )
     return Response(content, media_type=media_type, headers={"Content-Disposition": disposition})
+
+
+# --- Disk space (n°14) -------------------------------------------------------------------
+
+@app.get("/storage")
+def storage_report():
+    """What each video occupies on disk, largest first, and the disk itself."""
+    with SessionLocal() as db:
+        videos = list(db.scalars(select(Video).options(load_only(
+            Video.id, Video.original_filename, Video.path, Video.status, Video.duration_seconds,
+            Video.created_at, Video.source_policy,
+        ))))
+        jobs = _latest_jobs(db, [video.id for video in videos])
+        rows = []
+        for video in videos:
+            job = jobs.get(video.id)
+            rows.append({
+                "id": video.id,
+                "original_filename": video.original_filename,
+                "status": video.status,
+                "duration_seconds": video.duration_seconds,
+                "created_at": video.created_at,
+                "source_policy": video.source_policy,
+                "busy": bool(job and job.status in ACTIVE_JOB_STATUSES),
+                **video_usage(video),
+            })
+    rows.sort(key=lambda row: row["total_bytes"], reverse=True)
+    totals = {
+        key: sum(row[key] for row in rows) for key in ("source_bytes", "audio_bytes", "exports_bytes", "total_bytes")
+    }
+    return {**disk_summary(), "totals": totals, "videos": rows}
+
+
+@app.post("/videos/{video_id}/storage")
+def free_video_storage(video_id: str, payload: StorageActionIn):
+    """Free a processed video's media; its text (transcript, summary, exports) stays."""
+    with SessionLocal() as db:
+        video = _video_or_404(db, video_id, lock=True)
+        if video.status != "COMPLETED":
+            raise HTTPException(409, "Seule une vidéo traitée peut libérer ses médias ; sinon, supprimez-la")
+        _refuse_if_busy(db, video_id)
+        if payload.action == "audio":
+            source = Path(video.path)
+            if not source.is_file():
+                raise HTTPException(409, "Fichier source introuvable")
+            if source.suffix.lower() in COMPRESSED_AUDIO_SUFFIXES:
+                raise HTTPException(409, "La source est déjà un fichier audio compressé")
+            job = ProcessingJob(id=str(uuid.uuid4()), video_id=video_id, kind="COMPACT", stage="QUEUED", status="QUEUED", progress=0)
+            db.add(job)
+            db.commit()
+            try:
+                queue = Queue(QUEUE_NAME, connection=Redis.from_url(settings.redis_url), default_timeout=21600)
+                rq_job = queue.enqueue("app.worker.run_compact", job.id, job_timeout=21600, result_ttl=86400)
+            except Exception as exc:
+                logger.warning("Unable to enqueue compact job %s: %s", job.id, exc)
+                db.delete(job)
+                db.commit()
+                raise HTTPException(503, "Service de traitement indisponible, réessayez ultérieurement") from exc
+            job.rq_job_id = rq_job.id
+            db.commit()
+            db.refresh(job)
+            return {"job": _job_payload(job, {}), "freed_bytes": 0, "usage": video_usage(video)}
+        try:
+            if payload.action == "delete_media":
+                freed = delete_media(video)
+            elif payload.action == "delete_work_audio":
+                freed = delete_work_audio(video)
+            else:
+                raise HTTPException(422, "Action inconnue")
+        except StorageError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return {"job": None, "freed_bytes": freed, "usage": video_usage(video)}
+
+
+# --- Watched folder (n°9) ----------------------------------------------------------------
+
+def _watch_folder_options(config: WatchFolderSettings) -> None:
+    """The defaults must be importable: the same rules as the upload form."""
+    import_settings(
+        target_language=config.target_language, template_id=config.template_id, custom_prompt=None,
+        summary_length=config.summary_length, source_language=config.source_language, vocabulary=None,
+        use_global_glossary=False, diarize=config.diarize, num_speakers=config.num_speakers,
+        source_policy=config.source_policy, tag=config.tag,
+    )
+
+
+@app.get("/settings/watch-folder", response_model=WatchFolderSettings)
+def get_watch_folder_settings():
+    with SessionLocal() as db:
+        return app_settings.load(db, app_settings.WATCH_FOLDER, WatchFolderSettings)
+
+
+@app.put("/settings/watch-folder", response_model=WatchFolderSettings)
+def put_watch_folder_settings(payload: WatchFolderSettings):
+    config = payload.model_copy(update={
+        "target_language": payload.target_language or None,
+        "template_id": payload.template_id or None,
+        "source_language": (payload.source_language or "").lower() or None,
+        "tag": " ".join((payload.tag or "").split()) or None,
+        "num_speakers": payload.num_speakers if payload.diarize else None,
+    })
+    _watch_folder_options(config)
+    with SessionLocal() as db:
+        app_settings.save(db, app_settings.WATCH_FOLDER, config)
+        db.commit()
+    return config
+
+
+@app.get("/watch-folder")
+def watch_folder_state():
+    """Files waiting in the inbox and files it refused, with their reason."""
+    with SessionLocal() as db:
+        config = app_settings.load(db, app_settings.WATCH_FOLDER, WatchFolderSettings)
+    return {
+        "enabled": config.enabled,
+        "folder": "data/inbox",
+        "stable_seconds": settings.watch_stable_seconds,
+        "pending": watch_folder.pending_files(),
+        "rejected": watch_folder.rejected_files(),
+    }
+
+
+@app.post("/watch-folder/rejected/{name}/retry")
+def retry_rejected_file(name: str):
+    try:
+        watch_folder.retry_rejected(name)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "Fichier introuvable") from exc
+    return {"retried": True}
+
+
+@app.delete("/watch-folder/rejected/{name}")
+def delete_rejected_file(name: str):
+    try:
+        watch_folder.delete_rejected(name)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "Fichier introuvable") from exc
+    return {"deleted": True}
+
+
+# --- Backups and library archive (n°13) --------------------------------------------------
+
+def _backup_out(info: backups.BackupInfo) -> dict:
+    return {"name": info.name, "kind": info.kind, "size_bytes": info.size_bytes, "created_at": info.created_at}
+
+
+@app.get("/backups")
+def list_backups():
+    with SessionLocal() as db:
+        config = app_settings.load(db, app_settings.BACKUPS, BackupSettings)
+    status = backups.read_status()
+    return {
+        "settings": config.model_dump(),
+        "folder": "data/backups",
+        "backups": [_backup_out(info) for info in backups.list_backups()],
+        "last_error": status.get("last_error"),
+        "last_error_at": datetime.fromtimestamp(status["last_error_at"], timezone.utc) if status.get("last_error_at") else None,
+        "last_success_at": datetime.fromtimestamp(status["last_success_at"], timezone.utc) if status.get("last_success_at") else None,
+    }
+
+
+@app.put("/settings/backups", response_model=BackupSettings)
+def put_backup_settings(payload: BackupSettings):
+    with SessionLocal() as db:
+        app_settings.save(db, app_settings.BACKUPS, payload)
+        db.commit()
+    return payload
+
+
+@app.post("/backups")
+async def create_backup_now():
+    try:
+        info = await run_in_threadpool(backups.create_backup, "manuel")
+    except backups.BackupBusy as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except backups.BackupError as exc:
+        raise HTTPException(500, str(exc)) from exc
+    return _backup_out(info)
+
+
+@app.get("/backups/{name}")
+def download_backup(name: str):
+    try:
+        path = backups.backup_path(name)
+    except backups.BackupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return FileResponse(path, filename=path.name, media_type="application/octet-stream")
+
+
+@app.delete("/backups/{name}")
+def delete_backup(name: str):
+    try:
+        backups.delete_backup(name)
+    except backups.BackupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"deleted": True}
+
+
+@app.get("/library/export")
+def export_library(media: bool = False):
+    """The processed videos, glossary, templates and conversations as one tar, streamed."""
+    filename = portable.export_filename()
+    return StreamingResponse(
+        portable.export_stream(media), media_type="application/x-tar",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/library/import")
+async def import_library(file: UploadFile = File(...)):
+    """Merge a library archive into this one: videos already present are skipped."""
+    settings.uploads_dir.mkdir(parents=True, exist_ok=True)
+    temporary = settings.uploads_dir / f".import-{uuid.uuid4()}.tar"
+    written = 0
+    try:
+        with temporary.open("wb") as out:
+            while chunk := await file.read(UPLOAD_CHUNK_SIZE):
+                written += len(chunk)
+                if written > settings.max_import_bytes:
+                    raise HTTPException(413, "Archive trop volumineuse : importez-la en ligne de commande (voir la documentation)")
+                out.write(chunk)
+        await file.close()
+        try:
+            return await run_in_threadpool(portable.import_archive, temporary)
+        except portable.ArchiveError as exc:
+            raise HTTPException(422, str(exc)) from exc
+    finally:
+        temporary.unlink(missing_ok=True)

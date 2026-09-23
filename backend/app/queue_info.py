@@ -64,7 +64,7 @@ def duration_models(db: Session) -> dict[tuple[str, bool], DurationModel | None]
         .limit(HISTORY_SIZE * 8)
     ).all()
     models: dict[tuple[str, bool], DurationModel | None] = {}
-    for kind in ("FULL", "SUMMARY", "INDEX"):
+    for kind in ("FULL", "SUMMARY", "INDEX", "DIARIZE", "COMPACT"):
         same_kind = [row for row in rows if row.kind == kind]
         for translated in (False, True):
             exact = [row for row in same_kind if row.translated == translated][:HISTORY_SIZE]

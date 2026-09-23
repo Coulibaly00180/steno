@@ -9,6 +9,7 @@ data/uploads/*
 data/audio/*
 data/exports/*
 data/backups/
+data/inbox/
 !data/uploads/.gitkeep
 !data/audio/.gitkeep
 !data/exports/.gitkeep

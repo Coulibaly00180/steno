@@ -16,6 +16,7 @@ OK = {
         "model": {"status": "ok", "detail": "qwen3:8b · présent"},
         "embedding": {"status": "ok", "detail": "bge-m3 · présent"},
     },
+    "scheduler": {"scheduler": {"status": "ok", "detail": "actif"}},
 }
 
 
@@ -24,7 +25,8 @@ def fresh_cache(monkeypatch):
     monkeypatch.setattr(status, "_cache", None)
 
 
-def use_checks(monkeypatch, database=None, queue=None, ollama=None):
+def use_checks(monkeypatch, database=None, queue=None, ollama=None, scheduler=None):
+    monkeypatch.setattr(status, "check_scheduler", scheduler or (lambda: OK["scheduler"]))
     monkeypatch.setattr(status, "check_database", database or (lambda: OK["database"]))
     monkeypatch.setattr(status, "check_queue", queue or (lambda: OK["queue"]))
     monkeypatch.setattr(status, "check_ollama", ollama or (lambda: OK["ollama"]))
@@ -36,7 +38,25 @@ def test_all_services_ok(client, monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["overall"] == "ok"
-    assert list(body["services"]) == ["database", "redis", "worker", "ollama", "model", "embedding"]
+    assert list(body["services"]) == ["database", "redis", "worker", "scheduler", "ollama", "model", "embedding"]
+
+
+def test_stopped_scheduler_is_degraded(client, monkeypatch):
+    use_checks(monkeypatch, scheduler=lambda: {"scheduler": {"status": "down", "detail": "arrêté"}})
+    body = client.get("/status").json()
+    assert body["overall"] == "degraded"
+    assert body["services"]["scheduler"]["status"] == "down"
+
+
+@pytest.mark.parametrize("alive, expected", [(1, "ok"), (0, "down")])
+def test_scheduler_check_reads_its_heartbeat(monkeypatch, alive, expected):
+    class FakeRedis:
+        def exists(self, key):
+            assert key == status.SCHEDULER_HEARTBEAT_KEY
+            return alive
+
+    monkeypatch.setattr(status.Redis, "from_url", lambda *args, **kwargs: FakeRedis())
+    assert status.check_scheduler()["scheduler"]["status"] == expected
 
 
 def test_stopped_worker_is_degraded_but_still_200(client, monkeypatch):

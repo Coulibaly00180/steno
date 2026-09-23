@@ -34,6 +34,23 @@ export const sourceLanguages: { code: string; label: string }[] = [
   { code: "ja", label: "Japonais" },
 ];
 
+/** Translation targets offered at import (the backend accepts any language name). */
+export const targetLanguages: { value: string; label: string }[] = [
+  { value: "français", label: "Français" },
+  { value: "anglais", label: "Anglais" },
+  { value: "espagnol", label: "Espagnol" },
+  { value: "allemand", label: "Allemand" },
+  { value: "portugais", label: "Portugais" },
+];
+
+// Mirrors backend/app/storage.py SOURCE_POLICIES (n°14).
+export type SourcePolicy = "keep" | "audio" | "delete";
+export const sourcePolicies: { value: SourcePolicy; label: string; hint: string }[] = [
+  { value: "keep", label: "Garder le fichier", hint: "Le fichier importé reste tel quel." },
+  { value: "audio", label: "Garder seulement l'audio", hint: "Une piste audio compacte (~20 Mo par heure) remplace la vidéo : lecture et sous-titres restent possibles." },
+  { value: "delete", label: "Supprimer les médias", hint: "Seuls le texte, le résumé et les exports sont conservés : plus de lecture ni de nouvelle identification des intervenants." },
+];
+
 export const VOCABULARY_MAX_CHARS = 1000;
 export const GLOSSARY_MAX_TERMS = 300;
 export const CUSTOM_PROMPT_MAX_CHARS = 2000;

@@ -8,7 +8,7 @@ import { Icon } from "../components/Icons";
 import VideoTable from "../components/VideoTable";
 import { useSystemStatus } from "../lib/status";
 import { useVideoList } from "../lib/library";
-import { CUSTOM_PROMPT_MAX_CHARS, VOCABULARY_MAX_CHARS, safeStorage, sourceLanguages, splitTerms, summaryLengths, wordBudget, type SummaryLength } from "../lib/analysis";
+import { CUSTOM_PROMPT_MAX_CHARS, VOCABULARY_MAX_CHARS, safeStorage, sourceLanguages, sourcePolicies, splitTerms, summaryLengths, targetLanguages, wordBudget, type SourcePolicy, type SummaryLength } from "../lib/analysis";
 
 const SOURCE_LANGUAGE_KEY = "video-ai-source-language";
 // One POST per file; beyond this, a folder import would be the right tool.
@@ -87,6 +87,7 @@ export default function Home() {
   const [useGlossary, setUseGlossary] = useState(true);
   const [diarize, setDiarize] = useState(false);
   const [numSpeakers, setNumSpeakers] = useState("");
+  const [sourcePolicy, setSourcePolicy] = useState<SourcePolicy>("keep");
   const [glossaryCount, setGlossaryCount] = useState<number | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -169,6 +170,7 @@ export default function Home() {
     if (vocabulary.trim()) form.append("vocabulary", vocabulary.trim());
     form.append("use_global_glossary", useGlossary && glossaryCount !== 0 ? "true" : "false");
     if (diarize) { form.append("diarize", "true"); if (numSpeakers) form.append("num_speakers", numSpeakers); }
+    if (sourcePolicy !== "keep") form.append("source_policy", sourcePolicy);
     const startedAt = performance.now();
     setUpload(item.key, { state: "uploading", loaded: 0, total: item.file.size, startedAt });
     const controller = new AbortController();
@@ -225,7 +227,7 @@ export default function Home() {
 
       <div className="card options-card">
         <div className="form-grid">
-          <div className="field"><label htmlFor="language">Langue de traduction</label><div className="field-control"><select id="language" value={targetLanguage} onChange={event => setTargetLanguage(event.target.value)}><option value="">Pas de traduction</option><option value="français">Français</option><option value="anglais">Anglais</option><option value="espagnol">Espagnol</option><option value="allemand">Allemand</option><option value="portugais">Portugais</option></select><Icon name="chevron" size={14}/></div></div>
+          <div className="field"><label htmlFor="language">Langue de traduction</label><div className="field-control"><select id="language" value={targetLanguage} onChange={event => setTargetLanguage(event.target.value)}><option value="">Pas de traduction</option>{targetLanguages.map(language => <option value={language.value} key={language.value}>{language.label}</option>)}</select><Icon name="chevron" size={14}/></div></div>
           <div className="field"><label htmlFor="template">Template de résumé</label><div className="field-control"><select id="template" value={templateId} onChange={event => setTemplateId(event.target.value)}><option value="">Par défaut</option>{templates.map(template => <option value={template.id} key={template.id}>{template.name}</option>)}</select><Icon name="chevron" size={14}/></div><Link className="text-link" href="/templates">Gérer les templates</Link></div>
         </div>
         <div className="field"><span className="field-label" id="length-label">Longueur du résumé</span><div className="segmented" role="radiogroup" aria-labelledby="length-label">{summaryLengths.map(option => <button type="button" role="radio" aria-checked={summaryLength === option.value} className={summaryLength === option.value ? "selected" : ""} title={option.hint} key={option.value} onClick={() => setSummaryLength(option.value)}>{option.label}</button>)}</div><span className="field-hint">{single && fileDuration !== null ? `~${wordBudget(fileDuration, summaryLength)} mots pour cette vidéo` : files.length > 1 ? "Longueur adaptée à la durée de chaque fichier." : summaryLengths.find(option => option.value === summaryLength)?.hint}</span></div>
@@ -237,6 +239,7 @@ export default function Home() {
             <div className="field"><span className="field-label">Glossaire global</span>{glossaryCount === 0 ? <span className="field-hint">Aucun glossaire global · <Link className="text-link" href="/settings">Créer</Link></span> : <label className="checkbox"><input type="checkbox" checked={useGlossary} onChange={event => setUseGlossary(event.target.checked)} /><span>Utiliser le glossaire global{glossaryCount !== null ? ` (${glossaryCount} terme${glossaryCount > 1 ? "s" : ""})` : ""} · <Link className="text-link" href="/settings">Modifier</Link></span></label>}</div>
           </div>
           <div className="field"><label htmlFor="vocabulary">Vocabulaire {files.length > 1 ? "de ces vidéos" : "de cette vidéo"} <span className="muted">(facultatif)</span></label><textarea id="vocabulary" rows={2} value={vocabulary} maxLength={VOCABULARY_MAX_CHARS} onChange={event => setVocabulary(event.target.value)} placeholder="Noms propres, sigles, jargon : Doñana, OKR, Kubernetes…" /><span className="field-hint">{splitTerms(vocabulary).length} terme(s) · {vocabulary.length}/{VOCABULARY_MAX_CHARS} caractères · séparés par des virgules ou des retours à la ligne</span></div>
+          <div className="field"><label htmlFor="source-policy">Après l&apos;analyse</label><div className="field-control"><select id="source-policy" value={sourcePolicy} onChange={event => setSourcePolicy(event.target.value as SourcePolicy)}>{sourcePolicies.map(option => <option value={option.value} key={option.value}>{option.label}</option>)}</select><Icon name="chevron" size={14}/></div><span className="field-hint">{sourcePolicies.find(option => option.value === sourcePolicy)?.hint} Réglable plus tard dans Paramètres › Espace disque.</span></div>
           <div className="field"><label htmlFor="instructions">Instructions supplémentaires <span className="muted">(facultatif, ajoutées au template)</span></label><textarea id="instructions" rows={2} value={customPrompt} maxLength={CUSTOM_PROMPT_MAX_CHARS} onChange={event => setCustomPrompt(event.target.value)} placeholder="Ex. : concentre le résumé sur les décisions prises et les prochaines actions…" /></div>
         </details>
         {error && <div className="error" role="alert">{error}</div>}

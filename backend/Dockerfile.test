@@ -5,8 +5,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 # fonts-dejavu-core: every accent and symbol in the PDF reports (n°20).
+# postgresql-client: the backup and restore tests (n°13).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg curl fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
+    ffmpeg curl fonts-dejavu-core postgresql-client && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY requirements.txt requirements-test.txt ./

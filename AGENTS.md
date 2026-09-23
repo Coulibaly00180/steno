@@ -46,6 +46,7 @@ Vérifier que le GPU est bien utilisé : `docker compose exec worker python -c "
   `docker compose exec -T postgres pg_dump -U videoai -Fc videoai > data/backups/videoai-<date>.dump`
 - Pour une vérification de bout en bout, créer des médias de test (conteneur jetable avec ffmpeg ou espeak-ng), les importer par l'API, puis **les supprimer** (`DELETE /videos/{id}`). Ne pas modifier les vidéos existantes de l'utilisateur sans son accord.
 - Ne jamais lancer `make reset` ni `docker compose down -v` sur la pile de l'application.
+- Ne jamais lancer le service `restore` sur la pile de l'application sans l'accord de l'utilisateur : il remplace la base. Les sauvegardes automatiques (`data/backups/steno-*-auto.dump`) et les fichiers de `data/inbox` sont aussi des données de l'utilisateur.
 
 ## Migrations
 
@@ -70,6 +71,11 @@ Vérifier que le GPU est bien utilisé : `docker compose exec worker python -c "
 | Conversations enregistrées (`/library/conversations`), réponses interrompues conservées (`keep()` dans les flux SSE de `main.py`) | `main.py` ; tables `library_conversations` et `library_messages` |
 | Bibliothèque (recherche plein texte PostgreSQL, filtres, tags) | `list_videos` et tags dans `main.py` ; colonne `search_vector` créée par la migration 0005 uniquement (voir `app.schema.MIGRATION_ONLY_OBJECTS`) |
 | Page vidéo | `frontend/app/videos/[id]/page.tsx` et `frontend/components/` |
+| Glossaire qui apprend (corrections → suggestions) | `backend/app/learning.py`, `/glossary/suggestions` (`main.py`) |
+| Espace disque, règle des médias à l'import (`source_policy`), job `COMPACT` | `backend/app/storage.py`, `run_compact` et `_apply_source_policy` (`worker.py`) |
+| Service `scheduler` : dossier surveillé `data/inbox` et sauvegardes planifiées | `backend/app/scheduler.py`, `watch_folder.py`, `backups.py` ; import partagé avec le formulaire : `import_settings` et `create_import` (`main.py`) |
+| Restauration (service outil `restore`), archive portable de la bibliothèque | `backend/app/backups.py`, `backend/app/portable.py`, guide `docs/sauvegardes.md` |
+| Réglages modifiés depuis l'interface | `backend/app/app_settings.py` (table `app_settings`) |
 
 Spécifications et choix : `docs/specs/`.
 

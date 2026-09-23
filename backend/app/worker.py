@@ -31,6 +31,7 @@ from .models import Chapter, JobDuration, ProcessingJob, Summary, SummaryTemplat
 from .diarization import assign_speakers, diarize
 from .retrieval import build_passages, embed_texts, record_index_failure, transcript_hash, write_index
 from .speakers import apply_turns, build_transcript, speaker_labels
+from .storage import StorageError, can_compact, compact_to_audio, delete_media
 from .transcription import StallWatchdog, transcribe_windows
 from .utils import split_text, timestamp
 
@@ -59,6 +60,7 @@ ERROR_SUMMARY_FAILED = "Échec de la génération du résumé"
 ERROR_TRANSCRIPTION_STALLED = "La transcription s'est bloquée ; relancez le traitement"
 ERROR_INDEX_FAILED = "Échec de l'indexation pour les questions"
 ERROR_DIARIZATION_FAILED = "Échec de l'identification des intervenants"
+ERROR_COMPACT_FAILED = "Échec de la conversion en audio seul"
 NO_SPEECH_SUMMARY = "Aucun contenu parlé détecté."
 # Room kept in the context window for the final prompt's own instructions.
 FINAL_PROMPT_OVERHEAD_TOKENS = 1024
@@ -920,6 +922,7 @@ def run_pipeline(job_id: str) -> None:
         # written successfully.  This keeps deletion/status decisions safe.
         if not set_video_status(video_id, "COMPLETED"):
             raise PipelineError(ERROR_VIDEO_NOT_FOUND)
+        _apply_source_policy(job_id, video_id)
         set_job(job_id, stage="COMPLETED", status="COMPLETED", progress=100)
     except JobCancelled:
         logger.info("Job %s cancelled by the user", job_id)
@@ -929,6 +932,54 @@ def run_pipeline(job_id: str) -> None:
     except Exception as exc:
         _record_failure(job_id, video_id, ERROR_PROCESSING_FAILED, exc)
         raise
+
+
+def _apply_source_policy(job_id: str, video_id: str) -> None:
+    """The media rule chosen at import (n°14). The text is safe: a failure only keeps the media."""
+    with SessionLocal() as db:
+        video = db.get(Video, video_id)
+        if video is None or video.source_policy == "keep":
+            return
+        policy, source = video.source_policy, Path(video.path)
+    try:
+        if policy == "audio" and can_compact(source):
+            set_job(job_id, stage="COMPACTING", progress=99)
+            compact_to_audio(video_id)
+        elif policy == "delete":
+            with SessionLocal() as db:
+                video = db.get(Video, video_id)
+                if video:
+                    delete_media(video)
+    except JobCancelled:
+        raise
+    except Exception:
+        logger.warning("Media rule %s failed for video %s; media kept", policy, video_id, exc_info=True)
+
+
+def run_compact(job_id: str) -> None:
+    """COMPACT job: keep only a compact audio track of a processed video (n°14)."""
+    if not _claim(job_id):
+        return
+    try:
+        with SessionLocal() as db:
+            job = db.get(ProcessingJob, job_id)
+            video_id = job.video_id if job else None
+        if video_id is None:
+            raise PipelineError(ERROR_JOB_NOT_FOUND)
+        set_job(job_id, stage="COMPACTING", progress=10)
+        check_cancelled(job_id)
+        compact_to_audio(video_id)
+        set_job(job_id, stage="COMPLETED", status="COMPLETED", progress=100)
+    except JobCancelled:
+        logger.info("Compact job %s cancelled", job_id)
+    except Exception as exc:
+        logger.exception("Compact job %s failed", job_id)
+        public = str(exc) if isinstance(exc, StorageError) else exc.public_message if isinstance(exc, PipelineError) else ERROR_COMPACT_FAILED
+        try:
+            # Only the job fails: the video and its media are untouched.
+            set_job(job_id, stage="FAILED", status="FAILED", error=public)
+        except JobCancelled:
+            pass
 
 
 def run_summary(job_id: str) -> None:

@@ -1,4 +1,4 @@
-.PHONY: up dev down logs pull-model gpu reset migrate db-revision db-current backup test test-backend test-frontend
+.PHONY: up dev down logs pull-model gpu reset migrate db-revision db-current backup restore test test-backend test-frontend
 
 up:
 	docker compose up --build
@@ -35,6 +35,12 @@ db-current:
 backup:
 	mkdir -p data/backups
 	docker compose exec -T postgres pg_dump -U videoai -Fc videoai > data/backups/videoai-$$(date +%Y%m%d-%H%M%S).dump
+
+# Usage: make restore f=steno-20260923-030000-auto.dump (see docs/sauvegardes.md)
+restore:
+	docker compose stop api worker scheduler web
+	docker compose --profile tools run --rm restore "$(f)"
+	docker compose up -d
 
 # Tests always run in Docker, on an isolated stack (see AGENTS.md).
 test: test-backend test-frontend

@@ -104,6 +104,36 @@ services:
       ollama:
         condition: service_healthy
 
+  # Watched folder data/inbox (n°9) and scheduled database backups (n°13).
+  scheduler:
+    build: ./backend
+    command: python -m app.scheduler
+    env_file: .env
+    volumes:
+      - ./data:/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Guided restore of a backup, services stopped first (docs/sauvegardes.md):
+  #   docker compose stop api worker scheduler web
+  #   docker compose --profile tools run --rm restore steno-AAAAMMJJ-HHMMSS-auto.dump
+  #   docker compose up -d
+  restore:
+    build: ./backend
+    profiles: ["tools"]
+    entrypoint: ["python", "-m", "app.backups", "restore"]
+    env_file: .env
+    volumes:
+      - ./data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   web:
     build: ./frontend
     ports:

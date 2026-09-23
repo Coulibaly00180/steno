@@ -5,8 +5,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 # fonts-dejavu-core: every accent and symbol in the PDF reports (n°20).
+# postgresql-client: pg_dump / pg_restore of the backups (n°13); Debian trixie
+# ships version 17, the server's.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg curl fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
+    ffmpeg curl fonts-dejavu-core postgresql-client && rm -rf /var/lib/apt/lists/*
 
 # Speaker diarization models (n°8), fetched and checksum-verified at build time.
 COPY scripts/fetch_diarization_models.py /tmp/

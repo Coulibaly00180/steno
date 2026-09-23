@@ -52,9 +52,25 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:3000"
 
+    # Watched folder (n°9): a file must keep the same size and date this long
+    # before it is imported (a copy in progress grows).
+    watch_stable_seconds: int = Field(default=10, ge=1, le=3600)
+    scheduler_poll_seconds: int = Field(default=5, ge=1, le=300)
+    # Library import (n°13): an archive with its media can be large.
+    max_import_bytes: int = Field(default=50 * 1024 ** 3, gt=0)
+    pg_dump_timeout_seconds: int = Field(default=3600, ge=10)
+
     @property
     def uploads_dir(self) -> Path:
         return self.data_dir / "uploads"
+
+    @property
+    def inbox_dir(self) -> Path:
+        return self.data_dir / "inbox"
+
+    @property
+    def backups_dir(self) -> Path:
+        return self.data_dir / "backups"
 
     @property
     def audio_dir(self) -> Path:

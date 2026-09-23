@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { GLOSSARY_MAX_TERMS, splitTerms } from "../lib/analysis";
+import GlossarySuggestions from "./GlossarySuggestions";
 
 const LEAVE_MESSAGE = "Le glossaire a été modifié sans être enregistré. Quitter la page ?";
 
@@ -55,5 +56,15 @@ export default function GlossaryEditor() {
     <div className="spread glossary-footer"><span className={`field-hint${count > GLOSSARY_MAX_TERMS ? " over-limit" : ""}`}>{count} / {GLOSSARY_MAX_TERMS} termes{dirty ? " · modifications non enregistrées" : ""}</span><button className="btn primary" onClick={save} disabled={!dirty || busy || count > GLOSSARY_MAX_TERMS}>{busy ? "Enregistrement…" : "Enregistrer"}</button></div>
     {error && <div className="error" role="alert">{error}</div>}
     {message && <p className="success-note" role="status">{message}</p>}
+    <GlossarySuggestions onAccepted={(terms, term) => {
+      // Saved on the server; unsaved edits of the box are kept, with the new term at the end.
+      const value = terms.join("\n");
+      setSaved(value);
+      setText(current => {
+        if (current === saved) return value;
+        if (splitTerms(current).some(item => item.toLocaleLowerCase() === term.toLocaleLowerCase())) return current;
+        return current.trim() ? `${current.replace(/\n+$/, "")}\n${term}` : term;
+      });
+    }} />
   </section>;
 }

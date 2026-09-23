@@ -255,6 +255,11 @@ def test_detecting_speakers_queues_a_job(client, db_session, monkeypatch):
     add_meeting(db_session)
     from tests.test_upload import SuccessfulQueue
 
+    # The media were deleted to save space (n°14): nothing to listen to.
+    assert client.post("/videos/v/speakers/detect", json={}).status_code == 409
+    main.settings.audio_dir.mkdir(parents=True, exist_ok=True)
+    (main.settings.audio_dir / "v.wav").write_bytes(b"RIFF")
+
     monkeypatch.setattr(main, "Queue", SuccessfulQueue)
     response = client.post("/videos/v/speakers/detect", json={"num_speakers": 4})
     assert response.status_code == 200 and response.json()["kind"] == "DIARIZE"

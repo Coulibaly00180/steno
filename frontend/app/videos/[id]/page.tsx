@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { API, api, formatDuration } from "../../../lib/api";
 import { Icon } from "../../../components/Icons";
 import MediaPlayer from "../../../components/MediaPlayer";
+import GlossarySuggestions from "../../../components/GlossarySuggestions";
 import ReplaceBar from "../../../components/ReplaceBar";
 import SpeakersPanel, { speakerColor, type Speaker } from "../../../components/SpeakersPanel";
 import SummaryPanel, { type Summary } from "../../../components/SummaryPanel";
@@ -23,7 +24,7 @@ type Video = {
   source_language_forced?: boolean; vocabulary?: string[]; glossary_snapshot?: string[]; whisper_terms_count?: number; llm_terms_count?: number;
   media_kind: string; source_available: boolean; audio_available: boolean; chapters: Chapter[];
   summary_outdated: boolean; translation_outdated: boolean; tags: string[]; chat_mode: "none" | "full" | "passages" | "partial";
-  speakers: Speaker[]; diarization_error?: string | null;
+  speakers: Speaker[]; diarization_error?: string | null; source_policy?: "keep" | "audio" | "delete";
   segments: Segment[]; summaries: Summary[]; job?: Job | null;
 };
 
@@ -223,6 +224,7 @@ export default function VideoPage() {
   const cancelledVideo = video.status === "CANCELLED";
   const canPlay = video.source_available || video.audio_available;
   const summaryJobFailed = job?.status === "FAILED" && job.kind === "SUMMARY";
+  const compactJobFailed = job?.status === "FAILED" && job.kind === "COMPACT";
   const waiting = queueText(job);
   const statusBadge = completed ? ["status-completed", "Terminé"] : video.status === "FAILED" ? ["status-failed", "Échec"] : cancelledVideo ? ["status-cancelled", "Annulé"] : video.status === "QUEUED" ? ["status-queued", "En attente"] : ["status-running", "En cours"];
 
@@ -232,9 +234,12 @@ export default function VideoPage() {
     {error && <div className="error" role="alert">{error}</div>}
     {job?.status === "FAILED" && (summaryJobFailed
       ? <div className="error">La régénération du résumé a échoué : {job.error || "erreur inconnue"}. Le résumé précédent est conservé.</div>
+      : compactJobFailed ? <div className="error">La conversion en audio seul a échoué : {job.error || "erreur inconnue"}. Le fichier d&apos;origine est conservé.</div>
       : <div className="error">{job.error || "Le traitement a échoué."}</div>)}
-    {job?.status === "CANCELLED" && <div className="status-banner" role="status"><p>{job.kind === "SUMMARY" ? "La régénération du résumé a été annulée. Le résumé précédent est conservé." : job.kind === "DIARIZE" ? "L'identification des intervenants a été annulée. La transcription est inchangée." : "Traitement annulé. Vous pouvez le relancer ou supprimer la vidéo."}</p></div>}
+    {job?.status === "CANCELLED" && <div className="status-banner" role="status"><p>{job.kind === "SUMMARY" ? "La régénération du résumé a été annulée. Le résumé précédent est conservé." : job.kind === "DIARIZE" ? "L'identification des intervenants a été annulée. La transcription est inchangée." : job.kind === "COMPACT" ? "La conversion en audio seul a été annulée. Le fichier d'origine est conservé." : "Traitement annulé. Vous pouvez le relancer ou supprimer la vidéo."}</p></div>}
     {running && <section className="card progress-card"><div className="spread"><strong style={{ fontSize: 13.5 }}>{job.kind === "SUMMARY" ? "Nouveau résumé · " : ""}{stages[job.stage] || job.stage}</strong><span className="row"><span className="mono muted" style={{ fontSize: 12 }}>{job.progress}%</span><button type="button" className="btn small" onClick={() => job.status === "RUNNING" ? setConfirmCancel(true) : void cancelProcessing()} disabled={cancelling}>{cancelling ? "Annulation…" : "Annuler"}</button></span></div>{waiting && <p className="field-hint queue-hint">{waiting}</p>}<div className="progress-track" style={{ marginTop: 12 }} role="progressbar" aria-label="Progression du traitement" aria-valuemin={0} aria-valuemax={100} aria-valuenow={job.progress}><div style={{ width: `${job.progress}%` }}/></div>{notifications.supported && notifications.permission !== "denied" ? <label className="checkbox notify-toggle"><input type="checkbox" checked={notifications.wanted} onChange={event => void notifications.setNotify(event.target.checked)} /><span>Me prévenir à la fin</span></label> : <p className="field-hint notify-toggle">Notifications bloquées par le navigateur — le titre de l&apos;onglet indiquera la fin.</p>}</section>}
+
+    {completed && !canPlay && !running && <div className="status-banner" role="status"><p>Les médias de cette vidéo ont été supprimés pour libérer de l&apos;espace : la transcription, le résumé et les exports restent disponibles.</p></div>}
 
     {canPlay && <section className={`media-layout${video.chapters.length ? " with-chapters" : ""}`} ref={playerRef}>
       <MediaPlayer videoId={video.id} mediaKind={video.media_kind} sourceAvailable={video.source_available} audioAvailable={video.audio_available} subtitles={completed} translation={video.translated_text ? video.target_language : null} mediaRef={mediaRef} onTime={onTime} />
@@ -251,6 +256,7 @@ export default function VideoPage() {
 
     {tab === "transcript" && <>
       {completed && <div className="row transcript-actions"><button className={`btn${correcting ? " selected" : ""}`} onClick={() => setCorrecting(value => !value)} disabled={running} aria-pressed={correcting}><Icon name="edit" size={14}/>{correcting ? "Terminer les corrections" : "Corriger la transcription"}</button>{running && <span className="field-hint">Corrections possibles à la fin du traitement en cours.</span>}</div>}
+      {completed && correcting && !running && <GlossarySuggestions compact refreshKey={video.transcript_text} />}
       <TranscriptSearch label="la transcription" lines={transcriptLines} query={transcriptQuery} onQueryChange={setTranscriptQuery} empty="Transcription non disponible." playing={canPlay ? playingSegment : -1} onSeek={canPlay ? line => seek(line.start ?? 0) : undefined} onEdit={correcting && !running ? editSegment : undefined} speakers={video.speakers.map(speaker => ({ id: speaker.id, label: speaker.label }))} toolbar={correcting && !running ? <ReplaceBar videoId={video.id} disabled={running} onReplaced={async message => { await loadVideo(); notify(message); }} /> : undefined} />
     </>}
 

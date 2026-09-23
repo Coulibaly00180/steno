@@ -49,6 +49,9 @@ class Video(Base):
     diarize: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     num_speakers: Mapped[int | None] = mapped_column(Integer, nullable=True)
     diarization_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # What happens to the media once processed (n°14): "keep", "audio" (compact
+    # audio only) or "delete" (text only). See app.storage.
+    source_policy: Mapped[str] = mapped_column(String(16), default="keep", server_default="keep")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     # Explicit ordering: PostgreSQL returns rows in no guaranteed order, and
@@ -213,6 +216,46 @@ class GlossaryTerm(Base):
     term: Mapped[str] = mapped_column(String(60))
     position: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class TermCorrection(Base):
+    """A misrecognition fixed by hand (n°2): the glossary learns from repeated ones.
+
+    Kept when the video is deleted: what was learnt stays useful.
+    """
+
+    __tablename__ = "term_corrections"
+    __table_args__ = (Index("ix_term_corrections_term_lower", func.lower(text("term"))),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    video_id: Mapped[str | None] = mapped_column(
+        ForeignKey("videos.id", ondelete="SET NULL", name="fk_term_corrections_video_id"), nullable=True
+    )
+    misheard: Mapped[str] = mapped_column(String(120))
+    term: Mapped[str] = mapped_column(String(60))
+    occurrences: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class GlossaryDismissal(Base):
+    """A suggested term the user declined: never suggested again."""
+
+    __tablename__ = "glossary_dismissals"
+    __table_args__ = (Index("uq_glossary_dismissals_term_lower", func.lower(text("term")), unique=True),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    term: Mapped[str] = mapped_column(String(60))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AppSetting(Base):
+    """Settings changed from the interface (watched folder, backups), as JSON per section."""
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class Chapter(Base):
