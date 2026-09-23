@@ -1,0 +1,125 @@
+services:
+  postgres:
+    # postgres:17-alpine + pgvector (semantic search), built locally: see postgres/Dockerfile.
+    build: ./postgres
+    image: video-ai-postgres:17-pgvector
+    environment:
+      POSTGRES_DB: videoai
+      POSTGRES_USER: videoai
+      POSTGRES_PASSWORD: videoai
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U videoai -d videoai"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  ollama:
+    image: ollama/ollama:0.34.1
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  model-pull:
+    image: ollama/ollama:0.34.1
+    profiles: ["tools"]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    # The LLM, then the multilingual embedding model of the semantic search.
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull ${LLM_MODEL:-qwen3:8b} && ollama pull ${EMBEDDING_MODEL:-bge-m3}"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  # Brings the schema to the latest Alembic revision, then exits. The API and
+  # the worker only start once it has succeeded.
+  migrate:
+    build: ./backend
+    command: python -m app.migrate
+    env_file: .env
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build: ./backend
+    env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data:/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  worker:
+    build: ./backend
+    command: python -m app.worker_entry
+    # RQ performs a warm shutdown, but Docker's default 10-second grace period
+    # would otherwise kill a long transcription or LLM call mid-job.
+    stop_grace_period: 6h
+    env_file: .env
+    volumes:
+      - ./data:/data
+      - whisper_cache:/root/.cache/huggingface
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+
+  web:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_data:
+  whisper_cache:

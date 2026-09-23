@@ -1,0 +1,84 @@
+{
+  "_comment": "Coverage references built from each source's official description only (talk abstracts, show rundown, Commons/Canal-U descriptions), never from our transcripts. Patterns are case-insensitive regular expressions searched in a summary.",
+  "clip-fr": {
+    "language": "fr",
+    "topics": {
+      "bien commun": "bien(s)? commun",
+      "licences libres / Creative Commons": "licence(s)? libre|creative commons",
+      "ressources réutilisables": "r[ée]utilis",
+      "vidéastes / vidéos": "vid[ée]ast|vid[ée]o"
+    }
+  },
+  "reunion-fr": {
+    "language": "fr",
+    "topics": {
+      "organisateurs": "organisat(eur|rice)",
+      "impact": "impact",
+      "nouveaux contributeurs": "nouveaux? (contribut|arriv|particip|venu|membre)|newcomer",
+      "recherche / étude": "recherche|[ée]tude",
+      "Wikimedia": "wikim[ée]dia|wikip[ée]dia",
+      "croissance / rétention": "croissance|r[ée]tention|fid[ée]lis|reviennent|continuer"
+    }
+  },
+  "podcast-en": {
+    "language": "en",
+    "topics": {
+      "Gaza": "gaza",
+      "Gideon Levy": "gideon levy|levy",
+      "Greenland": "greenland",
+      "Denmark": "denmark|danish",
+      "Panama Canal": "panama",
+      "Greg Grandin": "grandin",
+      "Mexico": "mexic",
+      "Roger McNamee": "mcnamee",
+      "crypto": "crypto|bitcoin",
+      "AI": "\\bai\\b|artificial intelligence",
+      "taxes": "\\btax"
+    }
+  },
+  "conference-en": {
+    "language": "en",
+    "chapter_starts": [
+      0,
+      3584,
+      7201,
+      9100
+    ],
+    "topics": {
+      "HALFLOOP": "half.?loop",
+      "NATO": "nato",
+      "HF / shortwave radio": "high.frequency|shortwave|\\bhf\\b",
+      "automatic link establishment": "automatic link establishment|\\bale\\b",
+      "PHUZZ": "phuzz",
+      "fuzzing": "fuzz",
+      "PHP web applications": "\\bphp\\b",
+      "0-day vulnerabilities": "0-day|zero-day|0day|vulnerabilit",
+      "Chipolo": "chipolo",
+      "Bluetooth tracker": "bluetooth",
+      "fault injection": "fault injection|glitch",
+      "remote code execution": "remote code execution|\\brce\\b",
+      "DA14580 / Dialog": "da14580|dialog|renesas",
+      "EUV lithography": "euv|extreme ultraviolet|lithograph",
+      "chip supply chain": "supply chain",
+      "semiconductors": "semiconductor",
+      "geopolitics": "geopolitic|sovereign|taiwan|china"
+    },
+    "_note": "PHUZZ is pronounced like 'fuzz': Whisper (small and large-v3-turbo) never writes it, so that item cannot be met by any summary."
+  },
+  "cours-fr": {
+    "language": "fr",
+    "_note": "Weak reference: Canal-U description themes only (the slide PDF link is dead).",
+    "chapter_starts": [
+      0,
+      3383
+    ],
+    "topics": {
+      "télévision": "t[ée]l[ée]vision|\\btv\\b",
+      "internet": "internet|web|r[ée]seau",
+      "vidéo": "vid[ée]o",
+      "modèles économiques": "mod[èe]le(s)? [ée]conomique|publicit|financ|abonnement|revenu",
+      "diffusion / streaming": "diffus|streaming|flux|broadcast",
+      "usages et pratiques": "usage|pratique|spectateur|public|audience"
+    }
+  }
+}

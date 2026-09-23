@@ -1,0 +1,66 @@
+# Test stack, isolated from the application: own project name, own
+# PostgreSQL and Redis in memory. The integration tests drop the `public`
+# schema, so they must never point at the application's database.
+#
+#   docker compose -f compose.test.yaml run --rm backend-tests
+#   docker compose -f compose.test.yaml run --rm frontend-tests
+#   docker compose -f compose.test.yaml down -v
+name: video-ai-test
+
+services:
+  postgres-test:
+    # Same image as the application: PostgreSQL 17 Alpine + pgvector.
+    build: ./postgres
+    image: video-ai-postgres:17-pgvector
+    environment:
+      POSTGRES_DB: videoai_test
+      POSTGRES_USER: videoai
+      POSTGRES_PASSWORD: videoai
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U videoai -d videoai_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis-test:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  backend-tests:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
+    environment:
+      DATABASE_URL: postgresql+psycopg://videoai:videoai@postgres-test:5432/videoai_test
+      REDIS_URL: redis://redis-test:6379/0
+      DATA_DIR: /tmp/video-ai-data
+      RUN_POSTGRES_TESTS: "1"
+      RUN_REDIS_TESTS: "1"
+    volumes:
+      - ./backend:/app
+    command: sh -c "python -m pyflakes app migrations && python -m pytest -q -p no:cacheprovider tests"
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+
+  frontend-tests:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      # Container-only dependencies: never mixed with a host node_modules.
+      - frontend_test_node_modules:/app/node_modules
+      - frontend_test_next:/app/.next
+    command: sh -c "npm ci --no-audit --no-fund && npx tsc --noEmit && npm run build"
+
+volumes:
+  frontend_test_node_modules:
+  frontend_test_next:

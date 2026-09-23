@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# Same Docker test stack as on a developer machine (compose.test.yaml):
+# the CI cannot drift from what `docker compose -f compose.test.yaml` runs.
+jobs:
+  backend:
+    name: Backend tests (Docker, PostgreSQL + Redis)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run backend tests
+        run: docker compose -f compose.test.yaml run --rm backend-tests
+      - name: Tear down
+        if: always()
+        run: docker compose -f compose.test.yaml down -v
+
+  frontend:
+    name: Frontend typecheck and build (Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Typecheck and build
+        run: docker compose -f compose.test.yaml run --rm frontend-tests
+      - name: Tear down
+        if: always()
+        run: docker compose -f compose.test.yaml down -v
+
+  compose:
+    name: Compose validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Provide Compose environment file
+        run: cp .env.example .env
+      - name: Validate standard Compose file
+        run: docker compose -f compose.yaml config -q
+      - name: Validate development Compose overlay
+        run: docker compose -f compose.yaml -f compose.dev.yaml config -q
+      - name: Validate GPU Compose overlay
+        run: docker compose -f compose.yaml -f compose.gpu.yaml config -q
+      - name: Validate test Compose file
+        run: docker compose -f compose.test.yaml config -q

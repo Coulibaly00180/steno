@@ -1,0 +1,21 @@
+.env
+.next/
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/uploads/*
+data/audio/*
+data/exports/*
+data/backups/
+!data/uploads/.gitkeep
+!data/audio/.gitkeep
+!data/exports/.gitkeep
+.playwright-mcp/
+# Reference corpus: media and raw results stay local (see data/corpus/README.md)
+data/corpus/*
+!data/corpus/README.md
+!data/corpus/evaluate.py
+!data/corpus/score.py
+!data/corpus/sources.json
+!data/corpus/references.json

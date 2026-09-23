@@ -1,0 +1,102 @@
+{
+  "reunion-fr": {
+    "file": "reunion-fr.webm",
+    "title": "File:VSN Skillshare Understanding Organizers' Impact (French).webm",
+    "url": "https://commons.wikimedia.org/wiki/File:VSN_Skillshare_Understanding_Organizers%27_Impact_(French).webm",
+    "licence": "CC BY-SA 4.0",
+    "author": "Volunteer Supporters Network / Andbar jayadi",
+    "description": "Volunteer Supporters Network April 2026 presentation on Understanding Organizers’ Impact on Newcomer Growth Research, presented by Anbar Jayadi from the Wikimedia Foundation.",
+    "duration_seconds": 3082,
+    "size_bytes": 182050561
+  },
+  "clip-fr": {
+    "file": "clip-fr.ogv",
+    "title": "File:Définir un bien commun.ogv",
+    "url": "https://commons.wikimedia.org/wiki/File:D%C3%A9finir_un_bien_commun.ogv",
+    "licence": "CC BY 3.0",
+    "author": "<a rel=\"nofollow\" class=\"external text\" href=\"https://www.youtube.com/user/lhistoirecentfins\">lhistoirecentfins</a>",
+    "description": "En plein doute au mois d'août ! Je n'arrive pas à terminer l'écriture des prochains Lordon/Piketty... Je pense finir ces vidéo pour fin septembre et en attendant je souhaite parler d'un sujet qui me tient particulièrement à cœur. Il y a sur internet quantité de ressources librement réutilisables mais par manque d'exposition peu de personnes les connaissent ou savent qu'ils peuvent facilement les réutiliser pour leurs projets. Je voudrais parler dans mes prochaines publications des vidéo et des vidéastes utilisant les licences libres.\n<p>Une petite précision : openlaw est un projet de l'université de Harvard : <a rel=\"nofollow\" class=\"external free\" href=\"http://cyber.harvard.edu/openlaw/\">http://cyber.harvard.edu/openlaw/</a>\nTout le matériel utilisé pour cette vidéo est sous licence creative commons :\nMusique que l'on entend sur la fin : \"digital freedom\" de PJH <a href=\"//commons.wikimedia.org/wiki/File:Digital_freedom.ogg\" title=\"File:Digital freedom.ogg\">File:Digital freedom.ogg</a>\n</p><p>Au tout début la vidéaste qui dit bonjour est C'Chaa <a rel=\"nofollow\" class=\"external free\" href=\"https://www.youtube.com/watch?feature=player_videoeditor&amp;v=WIVUEe4h_Ks\">https://www.youtube.com/watch?feature=player_videoeditor&amp;v=WIVUEe4h_Ks</a>\n</p>\nJ'utilise aussi une bonne partie de la vidéo de Paul Balmet : <a rel=\"nofollow\" class=\"external free\" href=\"https://www.youtube.com/watch?v=ksqO9aGtItw\">https://www.youtube.com/watch?v=ksqO9aGtItw</a>",
+    "duration_seconds": 178,
+    "size_bytes": 21182896
+  },
+  "podcast-en": {
+    "file": "podcast-en.mp4",
+    "title": "Democracy Now! Friday, December 27, 2024",
+    "url": "https://archive.org/details/dn2024-1227_vid",
+    "licence": "CC BY-NC-ND 3.0 US (democracynow.org)",
+    "author": "Democracy Now!",
+    "description": "Democracy Now! television program for Friday, December 27, 2024\n\n",
+    "duration_seconds": 3542,
+    "size_bytes": 609180390
+  },
+  "conference-en": {
+    "file": "conference-en.mp3",
+    "title": "38C3, Saal ZIGZAG, 27 décembre 2024 (4 conférences consécutives)",
+    "url": "https://media.ccc.de/c/38c3",
+    "licence": "CC BY 4.0",
+    "author": "Chaos Computer Club / speakers",
+    "talks": [
+      {
+        "title": "Breaking NATO Radio Encryption",
+        "persons": [
+          "Lukas Stennes"
+        ],
+        "url": "https://media.ccc.de/v/38c3-breaking-nato-radio-encryption",
+        "duration": 3584,
+        "description": "We present fatal security flaws in the HALFLOOP-24 encryption algorithm, which is used by the US military and NATO. HALFLOOP-24 was meant to safeguard the automatic link establishment protocol in high frequency radio, but our research demonstrates that merely two hours of intercepted radio traffic are sufficient to recover the secret key. In the talk, we start with the fundamentals of symmetric key cryptography before going into the details of high frequency radio, HALFLOOP-24, and the foundation of our attack.\n\nHigh frequency (HF) radio, also known as shortwave radio, is commonly used by the military, other government agencies and industries that need highly robust long-distance communication without any external infrastructures. HF radio uses frequencies between 3 and 30 MHz. These frequencies enable skywave propagation, where the radio signals are reflected by electrically charged particles in the upper atmosphere. While this effect enables communication across very large distances, historically, it required trained and experienced operators to establish a radio link.\n\nThis dependence on operators was reduced by the introduction of the automatic link establishment (ALE) protocol. In a nutshell, an ALE-enabled radio establishes a link to another radio by selecting a suitable frequency according to a propagation model and then transmitting a call frame. If the frequency is good, the other radio receives the frame and the two radios perform a handshake to set up a link. The encryption of these ALE frames is known as linking protection. It is primarily meant to protect unauthorized users from establishing links with radios in a network or interfering with established links. Additionally, encryption of ALE frames also protects the network from certain types of traffic analysis, which is the analysis of operating data such as network structure, frequencies, callsigns and schedules. The first ALE standard did not specify a cipher, but specified how to integrate a stream cipher with ALE. Later standards introduced the 56-bit key Lattice/SoDark cipher, which is now recommended to be replaced with HALFLOOP whenever possible.\n\nHALFLOOP, which is standardized in US standard [MIL-STD-188-14D](https://quicksearch.dla.mil/qsDocDetails.aspx?ident_number=67563) since 2017, is essentially a downscaled version of the Advanced Encryption Standard (AES), which effectively is the most used encryption algorithm today. While this downscaling led to many strong components in HALFLOOP, a fatal flaw in the handling of the so-called tweak enables devastating attacks. In a nutshell, by applying a technique known as differential cryptanalysis, an attacker can skip large parts of the encryption process. In turn, this makes it possible to extract the used secret key and hence enables an attacker to break the confidentiality of the ALE handshake messages and also makes an efficient denial-of-service attack possible.\n\nThese attacks are described in the two research papers, [Breaking HALFLOOP-24](https://doi.org/10.46586/tosc.v2022.i3.217-238) and [Destroying HALFLOOP-24](https://doi.org/10.46586/tosc.v2023.i4.58-82). They were initiated by the presentation of the [Cryptanalysis of the SoDark Cipher](https://doi.org/10.46586/tosc.v2021.i3.36-53), the predecessor of HALFLOOP.\n\nLicensed to the public under http://creativecommons.org/licenses/by/4.0",
+        "starts_at_seconds": 0
+      },
+      {
+        "title": "What the PHUZZ?!",
+        "persons": [
+          "Sebastian Neef (gehaxelt)"
+        ],
+        "url": "https://media.ccc.de/v/38c3-what-the-phuzz-finding-0-days-in-web-applications-with-coverage-guided-fuzzing",
+        "duration": 3617,
+        "description": "PHUZZ is a framework for Coverage-Guided Fuzzing of PHP Web Applications\r\n\r\nFuzz testing is an automated approach to vulnerability discovery. Coverage-guided fuzz testing has been extensively researched in binary applications and the domain of memory corruption vulnerabilities.\r\nHowever, many web vulnerability scanners still rely on black-box fuzzing (e.g., predefined sets of payloads or basic heuristics), which severely limits their vulnerability detection capabilities.\r\nIn this talk, we present our academic fuzzing framework, \"PHUZZ,\" and the challenges we faced in bringing coverage-guided fuzzing to PHP web applications. Our experiments show that PHUZZ outperforms related works and state-of-the-art vulnerability scanners in discovering seven different vulnerability classes.\r\nAdditionally, we demonstrate how PHUZZ uncovered over 20 potential security issues and two 0-day vulnerabilities in a large-scale fuzzing campaign of the most popular WordPress plugins.\r\n\r\nThe World Wide Web has become a fundamental part of modern society, providing crucial services such as social networks, online shopping, and other web applications. To this day, web vulnerabilities continue to be discovered, and data breaches are reported, even on high-profile websites. While several viable methods exist to detect web vulnerabilities, such as penetration tests, source code reviews, and bug bounty programs, these approaches are typically costly and time-intensive. Therefore, discovering web vulnerabilities in an automated and cost-effective fashion is desirable.\r\n\r\nOne method to approach this problem is coverage-guided \"fuzzing\", which has been successfully used to identify memory corruption bugs in binary applications, but has seen limited application to web applications. Our academic research has resulted in an open-source prototype called \"PHUZZ,\" which outperforms classic black-box vulnerability scanners in detecting web vulnerabilities with its fuzzing approach.\r\n\r\nThis talk will first introduce the concept of coverage-guided fuzzing and the differences from black-box web fuzzing performed by vulnerability scanners. After diving into the challenges of applying coverage-guided fuzzing to web applications, we will introduce PHUZZ and explain how its approach allows the detection of a wide variety of web vulnerabilities, including SQLi, RCE, XSS, XXE, open redirection, insecure deserialization, and path traversal in PHP web applications.\r\n\r\nOur comparison of PHUZZ with state-of-the-art black-box vulnerability scanners, using a diverse set of artificial and real-world web applications containing known and unknown vulnerabilities, showed surprising results. Not only does PHUZZ outperform the other vulnerability scanners in the number of discovered vulnerabilities, but it also discovers over a dozen new potential vulnerabilities and two 0-days, which we will discuss in our talk. Finally, we will motivate the use of PHUZZ [1] and coverage-guided fuzzing methods to discover web vulnerabilities.\r\n\r\nThis presentation is based on our academic publication \"What All the PHUZZ Is About: A Coverage-guided Fuzzer for Finding Vulnerabilities in PHP Web Applications\" [0].\r\n\r\n[0] https://dl.acm.org/doi/10.1145/3634737.3661137\r\n[1] https://github.com/gehaxelt/phuzz\r\n\r\nLicensed to the public under http://creativecommons.org/licenses/by/4.0",
+        "starts_at_seconds": 3584
+      },
+      {
+        "title": "From fault injection to RCE: Analyzing a Bluetooth tracker",
+        "persons": [
+          "Nicolas Oberli"
+        ],
+        "url": "https://media.ccc.de/v/38c3-from-fault-injection-to-rce-analyzing-a-bluetooth-tracker",
+        "duration": 1899,
+        "description": "The Chipolo ONE is a Bluetooth tracker built around the Dialog (now Renesas)\nDA14580 chip. This talk will present the research made on this device, from\nextracting the firmware from the locked down chip using fault injection up to\ngetting remote code execution over Bluetooth.\nThe talk will also present the disclosure process and how the vendor reacted to\nan unpatchable vulnerability on their product.\n\nThis talk will present the journey through the analysis of the Chipolo ONE\nBluetooth tracker. As for lots of IoT devices, this analysis mixes both hardware\nand software attacks so this talk will be packed with lots of techniques that\ncan be applied to other devices as well:\n\n - Using fault injection to bypass the debug locking mechanism on a chip that has\n   apparently never been broken before.\n - Reverse engineering an unknown firmware with Ghidra, a PDF and parts of a SDK\n - Analyzing weak cryptographic algorithms to be able to authenticate to any\n   device\n - Finding a buffer overflow and achieve code execution over Bluetooth\n - Disclosing an unpatchable vulnerability to the vendor\n\nLicensed to the public under http://creativecommons.org/licenses/by/4.0",
+        "starts_at_seconds": 7201
+      },
+      {
+        "title": "From Silicon to Sovereignty: How Advanced Chips are Redefining Global Dominance",
+        "persons": [
+          "Thorsten Hellert"
+        ],
+        "url": "https://media.ccc.de/v/38c3-from-silicon-to-sovereignty-how-advanced-chips-are-redefining-global-dominance",
+        "duration": 2402,
+        "description": "Recent breakthroughs in machine learning have dramatically heightened the demand for cutting-edge computing chips, driving advancements in semiconductor technologies. At the forefront of this progress is Extreme Ultraviolet (EUV) lithography—a transformative method in microchip fabrication that enables the creation of ultra-small, high-performance devices. However, the path from raw materials to these state-of-the-art chips navigates a complex global supply chain riddled with technical challenges and geopolitical tensions. As nations vie for dominance in computing power, control over this supply chain has emerged as a strategic priority, featuring prominently in a high-stakes competition with global implications. Designed for all audiences, this talk explores the critical intersection of science, technology and global affairs shaping our future.\n\nThis talk centres on the advanced technical processes required to manufacture state-of-the-art computer chips, tracing the journey from raw materials to ultra-miniaturized circuits. We will explore each critical stage in this complex process, beginning with the refinement of ultrapure quartz and progressing through wafer production to the advanced lithography techniques that enable feature sizes down to just a few nanometers—all executed not merely in a laboratory but at an industrial scale that pushes the boundaries of what is technologically possible.\n\nA particular emphasis will be placed on Extreme Ultraviolet (EUV) lithography, a revolutionary technique essential for achieving these ultra-small scales. EUV lithography not only represents the core technological challenge in chip fabrication but also holds a pivotal position in the global semiconductor supply chain, placing it at the intersection of scientific innovation and international politics. The talk will address both the underlying physics and the geopolitical significance of this technology, as nations increasingly view control over semiconductor production as a strategic asset.\n\nLicensed to the public under http://creativecommons.org/licenses/by/4.0",
+        "starts_at_seconds": 9100
+      }
+    ],
+    "duration_seconds": 11501,
+    "size_bytes": 184011308
+  },
+  "cours-fr": {
+    "file": "cours-fr.mp4",
+    "title": "Cours de culture numérique 2014-2015 : 03A + 03B, Vidéo, entre télévision et internet",
+    "url": "https://www.canal-u.tv/chaines/cemu/cours-de-culture-numerique-2014-2015",
+    "licence": "CC BY-SA",
+    "author": "Hervé Le Crosnier (CEMU, Université de Caen)",
+    "parts": [
+      {
+        "file": "cours-03a-video-entre-television-et-internet-cn14-15-1.mp4",
+        "duration": 3383
+      },
+      {
+        "file": "cours-03b-video-entre-television-et-internet-suite-cn14-1.mp4",
+        "duration": 3050
+      }
+    ],
+    "duration_seconds": 6432,
+    "size_bytes": 175495124
+  }
+}

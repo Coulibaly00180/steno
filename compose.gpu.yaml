@@ -1,0 +1,34 @@
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.gpu
+    environment:
+      WHISPER_DEVICE: cuda
+      WHISPER_COMPUTE_TYPE: float16
+      # Affordable on a GPU, much better on names and jargon than "small".
+      WHISPER_MODEL: large-v3-turbo
+      # 32k tokens: a detailed summary of 3 hours no longer squeezes the block
+      # summaries into ~2k tokens (qwen3:8b + KV cache fit in 16 GB of VRAM).
+      LLM_NUM_CTX: "32768"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  api:
+    environment:
+      # The chat sends up to 30 000 characters of transcript.
+      LLM_NUM_CTX: "32768"
