@@ -54,6 +54,11 @@ class Video(Base):
     source_policy: Mapped[str] = mapped_column(String(16), default="keep", server_default="keep")
     # Link the media was downloaded from (n°12): the worker fetches it first.
     source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Recurring meetings (n°6): the series, and « what changed since last time » (JSON cache, see app.series).
+    series_id: Mapped[str | None] = mapped_column(
+        ForeignKey("meeting_series.id", ondelete="SET NULL", name="fk_videos_series_id"), nullable=True, index=True
+    )
+    series_changes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     # Explicit ordering: PostgreSQL returns rows in no guaranteed order, and
@@ -329,6 +334,68 @@ class ActionItem(Base):
     position: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class MeetingSeries(Base):
+    """Recurring meetings grouped together (n°6): the weekly committee, the project review…"""
+
+    __tablename__ = "meeting_series"
+    __table_args__ = (Index("uq_meeting_series_name_lower", func.lower(text("name")), unique=True),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class VideoClip(Base):
+    """A passage cut out of a video to share it (n°7), rendered by a CLIP job.
+
+    `subtitles`: none, track (a subtitle track players can show) or burned (drawn on the picture).
+    """
+
+    __tablename__ = "video_clips"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    video_id: Mapped[str] = mapped_column(
+        ForeignKey("videos.id", ondelete="CASCADE", name="fk_video_clips_video_id"), index=True
+    )
+    job_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    title: Mapped[str] = mapped_column(String(200))
+    start_seconds: Mapped[float] = mapped_column(Float)
+    end_seconds: Mapped[float] = mapped_column(Float)
+    subtitles: Mapped[str] = mapped_column(String(16), default="none", server_default="none")
+    subtitle_source: Mapped[str] = mapped_column(String(16), default="original", server_default="original")
+    status: Mapped[str] = mapped_column(String(16), default="QUEUED", server_default="QUEUED")
+    filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class QualityRun(Base):
+    """A replay of the reference corpus (n°4): which models and prompts, and the scores obtained.
+
+    `results`: JSON, one entry per corpus item (coverage, length, chapters, timings, summary).
+    """
+
+    __tablename__ = "quality_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16))
+    scope: Mapped[str] = mapped_column(String(16))
+    trigger: Mapped[str] = mapped_column(String(16))
+    llm_model: Mapped[str] = mapped_column(String(120))
+    whisper_model: Mapped[str] = mapped_column(String(120))
+    prompt_version: Mapped[str] = mapped_column(String(16))
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    progress: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    current: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    results: Mapped[str | None] = mapped_column(Text, nullable=True)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rq_job_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Entity(Base):

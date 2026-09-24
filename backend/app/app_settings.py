@@ -7,7 +7,9 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
 
 from .models import AppSetting
-from .schemas import BackupSettings, ModelSettings, UrlImportSettings, WatchFolderSettings
+from .schemas import (
+    BackupSettings, ModelSettings, OnboardingSettings, QualitySettings, UrlImportSettings, WatchFolderSettings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +17,13 @@ WATCH_FOLDER = "watch_folder"
 BACKUPS = "backups"
 URL_IMPORT = "url_import"
 MODELS = "models"
+QUALITY = "quality"
+ONBOARDING = "onboarding"
+# The password hash and the session key: read by app.auth only, never returned by the API.
+ACCESS = "access"
 SECTIONS: dict[str, type[BaseModel]] = {
     WATCH_FOLDER: WatchFolderSettings, BACKUPS: BackupSettings, URL_IMPORT: UrlImportSettings, MODELS: ModelSettings,
+    QUALITY: QualitySettings, ONBOARDING: OnboardingSettings,
 }
 
 Model = TypeVar("Model", bound=BaseModel)

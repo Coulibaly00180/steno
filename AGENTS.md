@@ -79,6 +79,11 @@ Vérifier que le GPU est bien utilisé : `docker compose exec worker python -c "
 | Résumé vérifiable (source de chaque ligne, « à vérifier ») | `backend/app/verification.py`, `/videos/{id}/summaries/{sid}/sources` (`main.py`), `SummaryPanel.tsx` |
 | Actions et décisions (extraction après le résumé, dates calculées par le code, CSV / .ics) | `backend/app/actions.py`, `_actions_after_summary` (`worker.py`), routes `/actions` (`main.py`), `ActionsPanel.tsx`, page `frontend/app/actions/` |
 | Note Obsidian, archive Obsidian de la bibliothèque, brouillon d'e-mail | `backend/app/notes.py`, `/videos/{id}/note.md`, `/videos/{id}/email.eml`, `/library/export/obsidian.zip` (`main.py`) |
+| Suivi de qualité : corpus de référence rejoué (déclenché si prompts ou modèles changent), scores comparés | `backend/app/quality.py`, `worker.compose_summary` (le calcul du résumé sans écriture, partagé avec les analyses), `/quality` (`main.py`), `QualityPanel.tsx` |
+| Séries de réunions : suggestions par titre, actions ouvertes, « depuis la dernière réunion » | `backend/app/series.py`, routes `/series` et `/videos/{id}/series` (`main.py`), `SeriesPanel.tsx`, pages `frontend/app/series/` |
+| Extraits vidéo (tâche `CLIP`, sous-titres incrustés ou en piste) | `backend/app/clips.py`, `run_clip` (`worker.py`), routes `/videos/{id}/clips` et `/clips` (`main.py`), `ClipsPanel.tsx` |
+| Accès depuis le réseau : mot de passe, sessions, proxy HTTPS (service `https`, profil `reseau`) | `backend/app/auth.py`, `AccessGuard` (`main.py`), `caddy/Caddyfile`, `AccessPanel.tsx`, page `frontend/app/login/`, guide `docs/acces-reseau.md` |
+| Installation Windows (lanceur) et assistant de premier lancement | `windows/steno.ps1`, `Installer Steno.cmd`, page `frontend/app/bienvenue/`, guide `docs/installation-windows.md` |
 | Réglages modifiés depuis l'interface | `backend/app/app_settings.py` (table `app_settings`) |
 | Enregistrement depuis le navigateur (morceaux envoyés au fil de l'eau, `/recordings`) | `/recordings` dans `main.py`, `frontend/app/record/`, `frontend/lib/recorder.ts` |
 | Service `live` : transcription en direct d'un enregistrement (aperçu, petit modèle) | `backend/app/live.py` (`LiveDecoder`, `LiveTranscriber`), table `live_segments` |

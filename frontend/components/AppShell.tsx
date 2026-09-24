@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { Icon } from "./Icons";
 import { serviceLabels, useSystemStatus, type ServiceName, type ServiceState } from "../lib/status";
+import { goToLogin } from "../lib/api";
+import { accessStatus } from "../lib/access";
 
 const nav = [
   { href: "/", label: "Accueil", icon: "home" as const },
@@ -12,6 +14,7 @@ const nav = [
   { href: "/library", label: "Bibliothèque", icon: "library" as const },
   { href: "/ask", label: "Questions", icon: "chat" as const },
   { href: "/actions", label: "Actions", icon: "check" as const },
+  { href: "/series", label: "Séries", icon: "series" as const },
   { href: "/entities", label: "Personnes et dates", icon: "people" as const },
   { href: "/templates", label: "Templates", icon: "template" as const },
   { href: "/models", label: "Modèles", icon: "chip" as const },
@@ -19,9 +22,23 @@ const nav = [
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  if (pathname === "/login") return <main className="app-main login-main">{children}</main>;
+  return <Shell pathname={pathname}>{children}</Shell>;
+}
+
+function Shell({ children, pathname }: { children: ReactNode; pathname: string }) {
+  const [signedIn, setSignedIn] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [systemOpen, setSystemOpen] = useState(false);
   const { status, reachable } = useSystemStatus();
+
+  // n°15: a password needed and no session: the login page first.
+  useEffect(() => {
+    accessStatus().then(access => {
+      if (access.required && !access.authenticated) goToLogin();
+      setSignedIn(access.required && access.authenticated);
+    }).catch(() => { /* the API is down: the status dot says so */ });
+  }, [pathname]);
 
   useEffect(() => {
     const saved = localStorage.getItem("video-ai-theme");
@@ -63,6 +80,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         <button className="nav-item nav-button" onClick={() => setSystemOpen(value => !value)} aria-expanded={systemOpen}><Icon name="system"/>État du système<span className={`health-dot ${dotClass}`} /></button>
       </div>
       <Link href="/settings" className={`nav-item${pathname.startsWith("/settings") ? " active" : ""}`} aria-label="Paramètres" title="Paramètres"><Icon name="settings"/><span className="nav-label">Paramètres</span></Link>
+      {signedIn && <button type="button" className="nav-item nav-button" onClick={() => void fetch("/api/auth/logout", { method: "POST" }).then(() => window.location.assign("/login"))}><Icon name="lock"/><span className="nav-label">Se déconnecter</span></button>}
       <div className="privacy-note"><Icon name="shield" size={13}/><span>IA locale — tout reste sur cet appareil</span></div>
       <div className="theme-switch" aria-label="Thème"><button className={theme === "light" ? "selected" : ""} onClick={() => chooseTheme("light")}><Icon name="sun" size={13}/>Clair</button><button className={theme === "dark" ? "selected" : ""} onClick={() => chooseTheme("dark")}><Icon name="moon" size={13}/>Sombre</button></div>
     </aside>

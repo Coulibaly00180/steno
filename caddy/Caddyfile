@@ -1,0 +1,25 @@
+# HTTPS proxy for the access from the local network (n°15, docs/acces-reseau.md).
+#
+# Certificates come from Caddy's local authority: nothing is asked of an outside
+# service, nothing leaves the network. Its root certificate (data/https/caddy/
+# pki/authorities/local/root.crt) is offered in Paramètres › Accès et sécurité,
+# to be installed once on each device.
+{
+	local_certs
+	skip_install_trust
+	auto_https disable_redirects
+	admin off
+	# A browser opening https://192.168.1.20:8443 sends no server name: this one answers.
+	default_sni {$LAN_ADDRESS}
+}
+
+https://{$LAN_ADDRESS}, https://localhost {
+	tls internal
+	reverse_proxy web:3000 {
+		# The API asks the password of the requests marked here. The mark
+		# replaces any header of the same name sent by the browser.
+		header_up X-Steno-Remote "1"
+		# Answers streamed as they come (live transcript, chat).
+		flush_interval -1
+	}
+}

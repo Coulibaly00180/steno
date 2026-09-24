@@ -1,6 +1,6 @@
 import type { ReactNode, SVGProps } from "react";
 
-type IconName = "home" | "library" | "template" | "system" | "settings" | "shield" | "sun" | "moon" | "upload" | "video" | "audio" | "close" | "chevron" | "arrow" | "more" | "download" | "trash" | "retry" | "chat" | "edit" | "sparkle" | "search" | "tag" | "mic" | "link" | "pause" | "stop" | "people" | "thumbUp" | "thumbDown" | "chip" | "check" | "mail";
+type IconName = "home" | "library" | "template" | "system" | "settings" | "shield" | "sun" | "moon" | "upload" | "video" | "audio" | "close" | "chevron" | "arrow" | "more" | "download" | "trash" | "retry" | "chat" | "edit" | "sparkle" | "search" | "tag" | "mic" | "link" | "pause" | "stop" | "people" | "thumbUp" | "thumbDown" | "chip" | "check" | "mail" | "scissors" | "series" | "lock" | "gauge";
 
 export function Icon({ name, size = 17, ...props }: SVGProps<SVGSVGElement> & { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
@@ -35,6 +35,10 @@ export function Icon({ name, size = 17, ...props }: SVGProps<SVGSVGElement> & { 
     chip: <><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2.5V6M15 2.5V6M9 18v3.5M15 18v3.5M2.5 9H6M2.5 15H6M18 9h3.5M18 15h3.5"/></>,
     check: <><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="m8 12 3 3 5-6"/></>,
     mail: <><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></>,
+    scissors: <><circle cx="6" cy="6.5" r="2.7"/><circle cx="6" cy="17.5" r="2.7"/><path d="M8.3 8 20 18M8.3 16 20 6"/></>,
+    series: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 2.5v3M16 2.5v3M7.5 13h2M11 13h2M14.5 13h2M7.5 16.5h2"/></>,
+    lock: <><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></>,
+    gauge: <><path d="M4 17a8 8 0 1 1 16 0"/><path d="m12 17 4-5.5"/><path d="M6.5 17h1M16.5 17h1M12 9v1"/></>,
     sparkle: <path d="M12 3.5 13.8 9 19.5 10.8 13.8 12.6 12 18.5 10.2 12.6 4.5 10.8 10.2 9Z"/>,
     chat: <><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-5 4v-4.5a2.5 2.5 0 0 1-1-2Z"/><path d="M8 8h8M8 12h5"/></>,
   };

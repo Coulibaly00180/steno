@@ -431,3 +431,77 @@ class ActionIn(BaseModel):
     due_date: date | None = None
     status: Literal["open", "done", "dropped"] | None = None
     start_seconds: float | None = Field(default=None, ge=0)
+
+
+class ClipIn(BaseModel):
+    """A passage to cut out (n°7)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    title: str | None = Field(default=None, max_length=200)
+    start_seconds: float = Field(ge=0)
+    end_seconds: float = Field(gt=0)
+    subtitles: Literal["none", "track", "burned"] = "none"
+    subtitle_source: Literal["original", "translation"] = "original"
+
+
+class SeriesIn(BaseModel):
+    """A series of meetings (n°6), with the meetings to put in it at creation."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    name: str = Field(min_length=1, max_length=120)
+    video_ids: list[str] = Field(default_factory=list, max_length=500)
+
+
+class SeriesRenameIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    name: str = Field(min_length=1, max_length=120)
+
+
+class VideoSeriesIn(BaseModel):
+    """The series of a meeting; None takes it out of its series."""
+
+    series_id: str | None = None
+
+
+class QualitySettings(BaseModel):
+    """Quality runs on the reference corpus (n°4): replayed by themselves when a prompt or a model changes."""
+
+    auto: bool = True
+
+
+class QualityRunIn(BaseModel):
+    scope: Literal["quick", "full"] = "quick"
+
+
+class AccessSettings(BaseModel):
+    """Access control (n°15), never sent to the browser: the password's scrypt hash and the session key.
+
+    `version` grows at each password change: the sessions opened before become invalid.
+    `require_local`: ask the password on this computer too (otherwise only from the network).
+    """
+
+    password_hash: str | None = None
+    secret: str | None = None
+    version: int = 0
+    require_local: bool = False
+
+
+class LoginIn(BaseModel):
+    password: str = Field(min_length=1, max_length=200)
+
+
+class PasswordIn(BaseModel):
+    """Set, change or remove (new_password None) the password; the current one is asked when there is one."""
+
+    current_password: str | None = Field(default=None, max_length=200)
+    new_password: str | None = Field(default=None, min_length=8, max_length=200)
+    require_local: bool | None = None
+
+
+class OnboardingSettings(BaseModel):
+    """First-launch assistant (n°19): shown until finished or skipped."""
+
+    done: bool = False

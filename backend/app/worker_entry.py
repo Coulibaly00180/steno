@@ -3,6 +3,7 @@ import logging
 from redis import Redis
 from rq import Queue, Worker
 
+from . import quality
 from .config import INDEX_QUEUE_NAME, QUEUE_NAME, settings
 from .db import engine
 from .schema import assert_schema_current
@@ -43,6 +44,13 @@ def main():
             logger.info("Queued %d video(s) for entity extraction", queued)
     except Exception:
         logger.warning("Unable to queue the entity catch-up", exc_info=True)
+    try:
+        # Reference corpus (n°4): a run cut by the stop fails; changed prompts or models start a new one.
+        quality.recover_interrupted()
+        if quality.maybe_schedule("auto"):
+            logger.info("Queued a quality run: prompts or models changed since the last one")
+    except Exception:
+        logger.warning("Unable to schedule the quality run", exc_info=True)
     redis = Redis.from_url(settings.redis_url)
     worker = Worker(
         # Listed in priority order: RQ always takes the first non-empty queue.

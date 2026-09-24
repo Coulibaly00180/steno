@@ -43,9 +43,17 @@ export function uploadForm<T>(path: string, form: FormData, onProgress: (loaded:
   });
 }
 
+/** n°15: a session that expired (or a password set meanwhile) sends to the login page, then back here. */
+export function goToLogin() {
+  if (typeof window === "undefined" || window.location.pathname === "/login") return;
+  const next = `${window.location.pathname}${window.location.search}`;
+  window.location.assign(`/login?next=${encodeURIComponent(next)}`);
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${path}`, { ...init, cache: "no-store" });
   if (!res.ok) {
+    if (res.status === 401 && !path.startsWith("/auth/")) goToLogin();
     throw await responseError(res);
   }
   return res.json();

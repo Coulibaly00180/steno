@@ -21,3 +21,7 @@ data/corpus/*
 !data/corpus/score.py
 !data/corpus/sources.json
 !data/corpus/references.json
+# HTTPS proxy of the network access: certificates and local authority (n°15)
+data/https/
+# Choices of the Windows launcher (GPU or not)
+.steno-launcher.json

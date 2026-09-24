@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { API, api, formatBytes, responseError } from "../../lib/api";
+import { api, formatBytes } from "../../lib/api";
+import { pullModel, type Pull } from "../../lib/models";
+import QualityPanel from "../../components/QualityPanel";
 
 type Installed = { name: string; size_bytes: number | null; parameter_size: string | null; quantization: string | null; family: string | null; embedding: boolean };
 type Suggestion = { name: string; vram: string; note: string; installed: boolean };
@@ -15,34 +17,9 @@ type Overview = {
 };
 type LlmResult = { load_seconds: number; tokens_per_second: number | null; prompt_tokens_per_second: number | null; total_seconds: number; answer: string };
 type WhisperResult = { status: "pending" | "running" | "done" | "error"; detail?: string; speed?: number; load_seconds?: number; audio_seconds?: number; transcribe_seconds?: number; sample?: string; text?: string; device?: string };
-type Pull = { status: string; completed?: number | null; total?: number | null; error?: string };
 
 const json = (method: string, body: unknown): RequestInit => ({ method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 const same = (a: string, b: string) => (a.includes(":") ? a : `${a}:latest`) === (b.includes(":") ? b : `${b}:latest`);
-
-/** Read the pull's Server-Sent Events (EventSource only does GET). */
-async function pullModel(name: string, onProgress: (pull: Pull) => void) {
-  const response = await fetch(`${API}/models/llm/pull`, json("POST", { name }));
-  if (!response.ok || !response.body) throw await responseError(response);
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) return;
-    buffer += decoder.decode(value, { stream: true });
-    let end: number;
-    while ((end = buffer.indexOf("\n\n")) >= 0) {
-      const block = buffer.slice(0, end);
-      buffer = buffer.slice(end + 2);
-      const event = block.match(/^event: (.*)$/m)?.[1];
-      const data = JSON.parse(block.match(/^data: (.*)$/m)?.[1] ?? "{}");
-      if (event === "error") throw new Error(data.detail);
-      if (event === "done") return;
-      onProgress(data);
-    }
-  }
-}
 
 export default function ModelsPage() {
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -197,5 +174,7 @@ export default function ModelsPage() {
         </li>;
       })}</ul>
     </section>
+
+    <QualityPanel />
   </div>;
 }

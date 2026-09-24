@@ -103,6 +103,11 @@ export default function Home() {
   const recent = useVideoList("limit=8");
   const uploadAbort = useRef<AbortController | null>(null);
 
+  // n°19: a fresh installation opens on the first-launch assistant, once.
+  useEffect(() => {
+    api<{ done: boolean }>("/settings/onboarding").then(state => { if (!state.done) router.replace("/bienvenue"); }).catch(() => { /* the page works without it */ });
+  }, [router]);
+
   useEffect(() => {
     api<Template[]>("/templates").then(rows => {
       setTemplates(rows);

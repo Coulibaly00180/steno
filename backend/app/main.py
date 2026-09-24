@@ -18,7 +18,8 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from http.cookies import CookieError, SimpleCookie
 from redis import Redis
 from rq import Queue
 from rq.command import send_stop_job_command
@@ -42,7 +43,10 @@ from .analysis_options import (
     split_stored_terms,
     whisper_terms,
 )
-from . import actions, ai_models, app_settings, backups, entities, notes, portable, url_import, verification, watch_folder
+from . import (
+    actions, ai_models, app_settings, auth, backups, clips, entities, notes, portable, quality, series, url_import, verification,
+    watch_folder,
+)
 from .config import QUEUE_NAME, settings
 from .learning import corrections_between, record_corrections, replacement_pair
 from .learning import dismiss as dismiss_suggestion
@@ -77,7 +81,9 @@ from .models import (
     LibraryConversation,
     LibraryMessage,
     LiveSegment,
+    MeetingSeries,
     ProcessingJob,
+    QualityRun,
     Recording,
     SavedSearch,
     Summary,
@@ -87,6 +93,7 @@ from .models import (
     Video,
     Speaker,
     VideoChatMessage,
+    VideoClip,
     VideoEntityState,
     VideoIndex,
     utcnow,
@@ -98,8 +105,18 @@ from .speakers import build_transcript, relabel_translation, speakers_payload
 from .queue_info import ACTIVE_JOB_STATUSES, QueueInfo, queue_snapshot
 from .schema import assert_schema_current
 from .schemas import (
+    AccessSettings,
     ActionIn,
     BackupSettings,
+    ClipIn,
+    LoginIn,
+    OnboardingSettings,
+    PasswordIn,
+    QualityRunIn,
+    QualitySettings,
+    SeriesIn,
+    SeriesRenameIn,
+    VideoSeriesIn,
     BenchmarkIn,
     ConversationRenameIn,
     EntityMergeIn,
@@ -158,8 +175,8 @@ CHAT_PASSAGES = 12
 LIBRARY_PASSAGES = 12
 LIBRARY_PASSAGES_PER_VIDEO = 4
 LIBRARY_MAX_VIDEOS = 500
-# Background jobs (semantic index, entities): never "the video's job" in the interface.
-BACKGROUND_KINDS = ("INDEX", "ENTITIES")
+# Background jobs (semantic index, entities) and clips: never "the video's job" in the interface.
+BACKGROUND_KINDS = ("INDEX", "ENTITIES", "CLIP")
 CUSTOM_PROMPT_MAX_CHARS = 2000
 DEFAULT_TEMPLATE_NAME = "Compte-rendu de réunion"
 TERMINAL_JOB_STATUSES = ("COMPLETED", "FAILED", "CANCELLED")
@@ -215,6 +232,47 @@ async def lifespan(app: FastAPI):
     yield
 
 
+class AccessGuard:
+    """Password check of the requests from the network (n°15, rules in app.auth).
+
+    Plain ASGI rather than BaseHTTPMiddleware: uploads, SSE streams and media
+    downloads pass through untouched.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path", "")
+        if scope["type"] != "http" or path in auth.PUBLIC_PATHS or path.startswith("/auth/"):
+            await self.app(scope, receive, send)
+            return
+        headers = {key.decode("latin-1").lower(): value.decode("latin-1") for key, value in scope.get("headers", [])}
+        remote = headers.get(auth.REMOTE_HEADER) == "1"
+        config = auth.cached()
+        if config is None:
+            try:
+                config = await run_in_threadpool(auth.load)
+            except Exception:
+                logger.warning("Unable to read the access settings", exc_info=True)
+                if not remote:
+                    await self.app(scope, receive, send)
+                    return
+                await JSONResponse({"detail": "Service indisponible"}, status_code=503)(scope, receive, send)
+                return
+        cookies = SimpleCookie()
+        try:
+            cookies.load(headers.get("cookie", ""))
+        except CookieError:
+            pass
+        token = cookies[auth.COOKIE].value if auth.COOKIE in cookies else None
+        decision = auth.decide(path, remote=remote, token=token, config=config)
+        if decision.allowed:
+            await self.app(scope, receive, send)
+            return
+        await JSONResponse({"detail": decision.detail}, status_code=decision.status)(scope, receive, send)
+
+
 app = FastAPI(title="Sténo", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
@@ -223,6 +281,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(AccessGuard)
 
 
 @app.get("/health")
@@ -2776,6 +2835,11 @@ def choose_models(payload: ModelSettings):
         app_settings.save(db, app_settings.MODELS, value)
         db.commit()
     ai_models.forget()
+    try:
+        # New models: the reference corpus is replayed to compare (n°4), when it is on this machine.
+        quality.maybe_schedule("auto")
+    except Exception:
+        logger.warning("Unable to schedule a quality run", exc_info=True)
     return {"llm_model": ai_models.llm_model(), "whisper_model": ai_models.whisper_model()}
 
 
@@ -2928,8 +2992,10 @@ def _action_out(item: ActionItem, title: str | None = None) -> dict:
 
 
 def _action_rows(db, *, video_id: str | None = None, status: str | None = None, kind: str | None = None,
-                 owner: str | None = None, q: str | None = None) -> list[tuple[ActionItem, str]]:
+                 owner: str | None = None, q: str | None = None, series_id: str | None = None) -> list[tuple[ActionItem, str]]:
     statement = select(ActionItem, Video.original_filename).join(Video, Video.id == ActionItem.video_id)
+    if series_id:
+        statement = statement.where(Video.series_id == series_id)
     if video_id:
         statement = statement.where(ActionItem.video_id == video_id)
     if status:
@@ -2958,11 +3024,12 @@ def _check_action_filters(status: str | None, kind: str | None) -> None:
 def list_actions(
     status: str | None = Query(None, max_length=16), kind: str | None = Query(None, max_length=16),
     owner: str | None = Query(None, max_length=80), q: str | None = Query(None, max_length=200),
+    series_id: str | None = Query(None, max_length=36),
 ):
-    """Every action and decision of the library, the dated ones first (n°5)."""
+    """Every action and decision of the library, the dated ones first (n°5); `series_id`: one series of meetings (n°6)."""
     _check_action_filters(status, kind)
     with SessionLocal() as db:
-        rows = _action_rows(db, status=status, kind=kind, owner=owner, q=q)
+        rows = _action_rows(db, status=status, kind=kind, owner=owner, q=q, series_id=series_id)
         owners = sorted({item.owner for item, _ in _action_rows(db) if item.owner}, key=str.casefold)
         return {"items": [_action_out(item, title) for item, title in rows], "owners": owners}
 
@@ -3094,3 +3161,555 @@ def export_obsidian(transcripts: bool = False):
         notes.obsidian_zip(SessionLocal, transcripts=transcripts), media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="steno-obsidian-{datetime.now(timezone.utc):%Y%m%d}.zip"'},
     )
+
+
+# --- Clips (n°7) ---------------------------------------------------------------------------------
+
+
+def _clip_out(clip: VideoClip, job: ProcessingJob | None) -> dict:
+    """The clip, its status taken from its job while it runs (the worker may be stopped before it records the end)."""
+    status = clip.status
+    if status in ("QUEUED", "RUNNING") and job is not None and job.status in ("FAILED", "CANCELLED"):
+        status = job.status
+    return {
+        "id": clip.id, "video_id": clip.video_id, "title": clip.title,
+        "start_seconds": clip.start_seconds, "end_seconds": clip.end_seconds,
+        "subtitles": clip.subtitles, "subtitle_source": clip.subtitle_source, "status": status,
+        "error": clip.error or (job.error if job is not None and status == "FAILED" else None),
+        "progress": job.progress if job is not None and status in ("QUEUED", "RUNNING") else None,
+        "job_id": clip.job_id, "filename": clip.filename, "size_bytes": clip.size_bytes, "created_at": clip.created_at,
+    }
+
+
+def _clip_or_404(db, clip_id: str) -> VideoClip:
+    clip = db.get(VideoClip, clip_id)
+    if clip is None:
+        raise HTTPException(404, "Extrait introuvable")
+    return clip
+
+
+def _default_clip_title(video: Video, start: float, end: float) -> str:
+    """The chapter the range starts in, else the time range."""
+    chapter = next((c for c in reversed(video.chapters) if c.start_seconds <= start + 1), None)
+    if chapter is not None and abs(chapter.start_seconds - start) <= 2:
+        return chapter.title[:200]
+    return f"Extrait {timestamp(start)} – {timestamp(end)}"
+
+
+@app.get("/videos/{video_id}/clips")
+def list_clips(video_id: str):
+    with SessionLocal() as db:
+        _video_or_404(db, video_id)
+        rows = list(db.scalars(select(VideoClip).where(VideoClip.video_id == video_id).order_by(desc(VideoClip.created_at))))
+        jobs = {job.id: job for job in db.scalars(select(ProcessingJob).where(
+            ProcessingJob.id.in_([clip.job_id for clip in rows if clip.job_id])
+        ))}
+        return [_clip_out(clip, jobs.get(clip.job_id)) for clip in rows]
+
+
+@app.post("/videos/{video_id}/clips")
+def create_clip(video_id: str, payload: ClipIn):
+    """Cut a passage (a CLIP job, main queue): a chapter or a range, subtitles optional (n°7)."""
+    with SessionLocal() as db:
+        video = _video_or_404(db, video_id)
+        if video.status != "COMPLETED":
+            raise HTTPException(409, "La vidéo n'est pas encore analysée")
+        start = payload.start_seconds
+        end = min(payload.end_seconds, video.duration_seconds) if video.duration_seconds else payload.end_seconds
+        if end - start < clips.MIN_CLIP_SECONDS:
+            raise HTTPException(422, "L'extrait doit durer au moins une seconde, dans la durée de la vidéo")
+        if end - start > clips.MAX_CLIP_SECONDS:
+            raise HTTPException(422, "Un extrait dure au plus 3 heures")
+        try:
+            clips.source_media(video)
+        except StorageError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        if payload.subtitle_source == "translation" and not video.translated_text:
+            raise HTTPException(409, "Cette vidéo n'a pas de traduction")
+        job = ProcessingJob(id=str(uuid.uuid4()), video_id=video_id, kind="CLIP", stage="QUEUED", status="QUEUED", progress=0)
+        clip = VideoClip(
+            id=str(uuid.uuid4()), video_id=video_id, job_id=job.id,
+            title=payload.title or _default_clip_title(video, start, end),
+            start_seconds=start, end_seconds=end, subtitles=payload.subtitles, subtitle_source=payload.subtitle_source,
+            status="QUEUED",
+        )
+        db.add_all([job, clip])
+        db.commit()
+        try:
+            queue = Queue(QUEUE_NAME, connection=Redis.from_url(settings.redis_url), default_timeout=21600)
+            rq_job = queue.enqueue("app.worker.run_clip", job.id, job_timeout=21600, result_ttl=86400)
+        except Exception as exc:
+            logger.warning("Unable to enqueue clip job %s: %s", job.id, exc)
+            db.delete(clip)
+            db.delete(job)
+            db.commit()
+            raise HTTPException(503, "Service de traitement indisponible, réessayez ultérieurement") from exc
+        job.rq_job_id = rq_job.id
+        db.commit()
+        db.refresh(clip)
+        db.refresh(job)
+        return _clip_out(clip, job)
+
+
+@app.get("/clips/{clip_id}/file")
+def clip_file(clip_id: str, download: bool = False):
+    with SessionLocal() as db:
+        clip = _clip_or_404(db, clip_id)
+        path = clips.clip_path(clip)
+        status = clip.status
+    if status != "READY" or path is None or not path.is_file():
+        raise HTTPException(404, "Fichier de l'extrait introuvable")
+    media_type = "audio/mp4" if path.suffix == ".m4a" else "video/mp4"
+    if download:
+        return FileResponse(path, media_type=media_type, filename=path.name)
+    return _media_response(path)
+
+
+@app.delete("/clips/{clip_id}")
+def delete_clip(clip_id: str):
+    """Delete a clip; one being cut is cancelled first."""
+    with SessionLocal() as db:
+        clip = _clip_or_404(db, clip_id)
+        job = db.get(ProcessingJob, clip.job_id) if clip.job_id else None
+        active_job = job.id if job is not None and job.status in ACTIVE_JOB_STATUSES else None
+    if active_job:
+        try:
+            cancel_job(active_job)
+        except HTTPException:
+            pass
+    with SessionLocal() as db:
+        clip = db.get(VideoClip, clip_id)
+        if clip is not None:
+            clips.delete_file(clip)
+            db.delete(clip)
+            db.commit()
+    return {"deleted": True}
+
+
+# --- Series of meetings (n°6) ----------------------------------------------------------------------
+
+
+def _series_or_404(db, series_id: str) -> MeetingSeries:
+    found = db.get(MeetingSeries, series_id)
+    if found is None:
+        raise HTTPException(404, "Série introuvable")
+    return found
+
+
+def _commit_series(db) -> None:
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, "Une série porte déjà ce nom") from exc
+
+
+def _meeting_out(video: Video) -> dict:
+    return {
+        "id": video.id, "title": series.title_of(video), "status": video.status, "created_at": video.created_at,
+        "duration_seconds": video.duration_seconds,
+    }
+
+
+def _assign(db, video_ids: list[str], series_id: str | None) -> int:
+    videos = list(db.scalars(select(Video).where(Video.id.in_(video_ids)))) if video_ids else []
+    for video in videos:
+        if video.series_id != series_id:
+            video.series_id = series_id
+            video.series_changes = None
+    return len(videos)
+
+
+@app.get("/series")
+def list_series():
+    with SessionLocal() as db:
+        rows = db.execute(
+            select(
+                MeetingSeries,
+                func.count(Video.id),
+                func.max(Video.created_at),
+            ).outerjoin(Video, Video.series_id == MeetingSeries.id).group_by(MeetingSeries.id).order_by(func.lower(MeetingSeries.name))
+        ).all()
+        open_counts = dict(db.execute(
+            select(Video.series_id, func.count(ActionItem.id)).join(ActionItem, ActionItem.video_id == Video.id)
+            .where(Video.series_id.is_not(None), ActionItem.kind == "action", ActionItem.status == "open")
+            .group_by(Video.series_id)
+        ).all())
+        return [
+            {"id": found.id, "name": found.name, "meetings": count, "last_meeting_at": last, "open_actions": open_counts.get(found.id, 0)}
+            for found, count, last in rows
+        ]
+
+
+@app.get("/series/suggestions")
+def series_suggestions():
+    """Meetings that look recurring (same title, dates and numbers aside) and belong to no series."""
+    with SessionLocal() as db:
+        return series.suggestions(db)
+
+
+@app.post("/series")
+def create_series(payload: SeriesIn):
+    with SessionLocal() as db:
+        found = MeetingSeries(id=str(uuid.uuid4()), name=payload.name)
+        db.add(found)
+        _commit_series(db)
+        _assign(db, payload.video_ids, found.id)
+        db.commit()
+        return {"id": found.id, "name": found.name}
+
+
+@app.patch("/series/{series_id}")
+def rename_series(series_id: str, payload: SeriesRenameIn):
+    with SessionLocal() as db:
+        found = _series_or_404(db, series_id)
+        found.name = payload.name
+        _commit_series(db)
+        return {"id": found.id, "name": found.name}
+
+
+@app.delete("/series/{series_id}")
+def delete_series(series_id: str):
+    """The series goes; its meetings stay in the library."""
+    with SessionLocal() as db:
+        found = _series_or_404(db, series_id)
+        _assign(db, list(db.scalars(select(Video.id).where(Video.series_id == series_id))), None)
+        db.delete(found)
+        db.commit()
+    return {"deleted": True}
+
+
+@app.get("/series/{series_id}")
+def get_series(series_id: str):
+    """The meetings in order, the actions still open across them, and every decision."""
+    with SessionLocal() as db:
+        found = _series_or_404(db, series_id)
+        meetings = series.meetings(db, series_id)
+        rows = _action_rows(db, series_id=series_id)
+        titles = {video.id: series.title_of(video) for video in meetings}
+        order = {video.id: index for index, video in enumerate(meetings)}
+        open_actions = [_action_out(item, titles.get(item.video_id)) for item, _ in rows if item.kind == "action" and item.status == "open"]
+        decisions = sorted(
+            (item for item, _ in rows if item.kind == "decision"), key=lambda item: (order.get(item.video_id, 0), item.position)
+        )
+        return {
+            "id": found.id, "name": found.name, "created_at": found.created_at,
+            "meetings": [_meeting_out(video) for video in meetings],
+            "open_actions": open_actions,
+            "done_actions": sum(1 for item, _ in rows if item.kind == "action" and item.status == "done"),
+            "decisions": [_action_out(item, titles.get(item.video_id)) for item in decisions],
+        }
+
+
+@app.get("/videos/{video_id}/series")
+def video_series(video_id: str):
+    """The meeting's series, its neighbours, and a suggestion when it has none."""
+    with SessionLocal() as db:
+        video = _video_or_404(db, video_id)
+        if video.series_id is None:
+            return {"series": None, "previous": None, "next": None, "suggestion": series.suggestion_for(db, video)}
+        found = _series_or_404(db, video.series_id)
+        meetings = series.meetings(db, found.id)
+        index = next((i for i, item in enumerate(meetings) if item.id == video.id), 0)
+        return {
+            "series": {"id": found.id, "name": found.name, "meetings": len(meetings), "position": index + 1},
+            "previous": _meeting_out(meetings[index - 1]) if index > 0 else None,
+            "next": _meeting_out(meetings[index + 1]) if index + 1 < len(meetings) else None,
+            "suggestion": None,
+        }
+
+
+@app.put("/videos/{video_id}/series")
+def set_video_series(video_id: str, payload: VideoSeriesIn):
+    with SessionLocal() as db:
+        _video_or_404(db, video_id)
+        if payload.series_id is not None:
+            _series_or_404(db, payload.series_id)
+        _assign(db, [video_id], payload.series_id)
+        db.commit()
+    return video_series(video_id)
+
+
+def _series_changes(video_id: str, refresh: bool) -> dict:
+    """Compare the meeting with the previous one of its series (one LLM call, cached)."""
+    with SessionLocal() as db:
+        video = _video_or_404(db, video_id)
+        if video.series_id is None:
+            return {"status": "none"}
+        found = _series_or_404(db, video.series_id)
+        open_items = series.open_actions_before(db, video)
+        titles = {item.video_id: None for item in open_items}
+        for row in db.execute(select(Video.id, Video.original_filename).where(Video.id.in_(list(titles)))):
+            titles[row.id] = Path(row.original_filename).stem
+        open_out = [_action_out(item, titles.get(item.video_id)) for item in open_items]
+        previous = series.previous_meeting(db, video)
+        if previous is None:
+            return {"status": "first", "series": {"id": found.id, "name": found.name}, "open_actions": open_out}
+        if not video.summaries:
+            return {"status": "no_summary", "series": {"id": found.id, "name": found.name}, "open_actions": open_out}
+        key = series.cache_key(previous, video, open_items)
+        cached = None if refresh else series.stored_changes(video, key)
+        name = found.name
+        base = {
+            "series": {"id": found.id, "name": found.name},
+            "previous": _meeting_out(previous),
+            "open_actions": open_out,
+        }
+        if cached is None:
+            # Detached copies for the LLM call: no transaction stays open meanwhile.
+            db.expunge_all()
+    if cached is None:
+        try:
+            result = series.compare(name, previous, video, open_items)
+        except Exception as exc:
+            logger.warning("Series comparison failed for %s", video_id, exc_info=True)
+            raise HTTPException(503, ERROR_CHAT_UNAVAILABLE) from exc
+        cached = result | {"key": key, "generated_at": utcnow().isoformat()}
+        with SessionLocal() as db:
+            stored = db.get(Video, video_id)
+            if stored is not None:
+                stored.series_changes = json.dumps(cached, ensure_ascii=False)
+                db.commit()
+    evidence = {item["id"]: item["evidence"] for item in cached.get("resolved", [])}
+    return base | {
+        "status": "ready",
+        "new": cached.get("new", []), "changed": cached.get("changed", []), "dropped": cached.get("dropped", []),
+        "resolved": [action | {"evidence": evidence[action["id"]]} for action in open_out if action["id"] in evidence],
+        "generated_at": cached.get("generated_at"),
+    }
+
+
+@app.get("/videos/{video_id}/series/changes")
+async def series_changes(video_id: str, refresh: bool = False):
+    return await run_in_threadpool(_series_changes, video_id, refresh)
+
+
+# --- Quality runs on the reference corpus (n°4) ------------------------------------------------------
+
+
+def _previous_run(db, run: QualityRun) -> QualityRun | None:
+    return db.scalar(
+        select(QualityRun).where(
+            QualityRun.scope == run.scope, QualityRun.status == "COMPLETED", QualityRun.created_at < run.created_at,
+        ).order_by(desc(QualityRun.created_at)).limit(1)
+    )
+
+
+@app.get("/quality")
+def quality_overview():
+    with SessionLocal() as db:
+        runs = list(db.scalars(select(QualityRun).order_by(desc(QualityRun.created_at)).limit(30)))
+        config = app_settings.load(db, app_settings.QUALITY, QualitySettings)
+        current, version = quality.fingerprint(db)
+        tested = db.scalar(select(QualityRun.id).where(QualityRun.fingerprint == current, QualityRun.status == "COMPLETED").limit(1))
+        return {
+            "items": quality.corpus_items(),
+            "available": quality.corpus_available(),
+            "settings": config.model_dump(),
+            "current": {
+                "llm_model": ai_models.llm_model(), "whisper_model": ai_models.whisper_model(), "prompt_version": version,
+                # Only a finished run counts: a cancelled or failed one measured nothing.
+                "tested": tested is not None,
+            },
+            "runs": [quality.run_out(run, _previous_run(db, run)) for run in runs],
+        }
+
+
+@app.get("/quality/runs/{run_id}")
+def quality_run(run_id: str):
+    with SessionLocal() as db:
+        run = db.get(QualityRun, run_id)
+        if run is None:
+            raise HTTPException(404, "Évaluation introuvable")
+        return quality.run_out(run, _previous_run(db, run), detail=True)
+
+
+@app.post("/quality/runs")
+def start_quality_run(payload: QualityRunIn):
+    if not quality.corpus_available():
+        raise HTTPException(409, "Le corpus de référence n'est pas sur cet ordinateur (data/corpus)")
+    with SessionLocal() as db:
+        if db.scalar(select(QualityRun.id).where(QualityRun.status.in_(quality.ACTIVE)).limit(1)):
+            raise HTTPException(409, "Une évaluation est déjà en cours")
+    try:
+        run = quality.enqueue(payload.scope, "manual")
+    except Exception as exc:
+        raise HTTPException(503, "Service de traitement indisponible, réessayez ultérieurement") from exc
+    return quality.run_out(run)
+
+
+@app.post("/quality/runs/{run_id}/cancel")
+def cancel_quality_run(run_id: str):
+    with SessionLocal() as db:
+        run = db.get(QualityRun, run_id)
+        if run is None:
+            raise HTTPException(404, "Évaluation introuvable")
+        if run.status not in quality.ACTIVE:
+            raise HTTPException(409, "Cette évaluation est déjà terminée")
+        running = run.status == "RUNNING"
+        run.status, run.current, run.finished_at = "CANCELLED", None, utcnow()
+        rq_job_id = run.rq_job_id
+        db.commit()
+    _stop_rq_job(rq_job_id, running=running)
+    return {"cancelled": True}
+
+
+@app.delete("/quality/runs/{run_id}")
+def delete_quality_run(run_id: str):
+    with SessionLocal() as db:
+        run = db.get(QualityRun, run_id)
+        if run is None:
+            raise HTTPException(404, "Évaluation introuvable")
+        if run.status in quality.ACTIVE:
+            raise HTTPException(409, "Annulez l'évaluation en cours avant de la supprimer")
+        db.delete(run)
+        db.commit()
+    return {"deleted": True}
+
+
+@app.put("/settings/quality", response_model=QualitySettings)
+def put_quality_settings(payload: QualitySettings):
+    with SessionLocal() as db:
+        app_settings.save(db, app_settings.QUALITY, payload)
+        db.commit()
+    return payload
+
+
+# --- Access: password and network (n°15) ------------------------------------------------------------
+
+HTTPS_ROOT_CERTIFICATE = Path("https") / "caddy" / "pki" / "authorities" / "local" / "root.crt"
+
+
+def _is_remote(request: Request) -> bool:
+    return request.headers.get(auth.REMOTE_HEADER) == "1"
+
+
+def _client_id(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    return forwarded.split(",")[0].strip() or (request.client.host if request.client else "local")
+
+
+def _set_session(response: Response, request: Request, config: AccessSettings) -> None:
+    response.set_cookie(
+        auth.COOKIE, auth.make_token(config), max_age=auth.SESSION_SECONDS, httponly=True, samesite="lax",
+        secure=request.headers.get("x-forwarded-proto") == "https", path="/",
+    )
+
+
+def _access_out(config: AccessSettings, request: Request) -> dict:
+    remote = _is_remote(request)
+    return {
+        "password_set": bool(config.password_hash),
+        "require_local": config.require_local,
+        "remote": remote,
+        "required": bool(config.password_hash) and (remote or config.require_local),
+        "authenticated": auth.valid_token(request.cookies.get(auth.COOKIE), config),
+        "network_blocked": remote and not config.password_hash,
+    }
+
+
+@app.get("/auth/status")
+def auth_status(request: Request):
+    return _access_out(auth.load(), request)
+
+
+@app.post("/auth/login")
+def login(payload: LoginIn, request: Request, response: Response):
+    redis = Redis.from_url(settings.redis_url, socket_connect_timeout=1, socket_timeout=1)
+    client = _client_id(request)
+    if auth.login_limited(redis, client):
+        raise HTTPException(429, "Trop de tentatives : réessayez dans 15 minutes")
+    config = auth.load()
+    if not config.password_hash:
+        raise HTTPException(409, "Aucun mot de passe n'est défini")
+    if not auth.verify_password(payload.password, config.password_hash):
+        raise HTTPException(401, "Mot de passe incorrect")
+    auth.reset_attempts(redis, client)
+    _set_session(response, request, config)
+    return _access_out(config, request) | {"authenticated": True}
+
+
+@app.post("/auth/logout")
+def logout(response: Response):
+    response.delete_cookie(auth.COOKIE, path="/")
+    return {"authenticated": False}
+
+
+@app.put("/auth/password")
+def set_password(payload: PasswordIn, request: Request, response: Response):
+    """Set, change or remove the password.
+
+    On this computer (and unless the password is asked here too), no current
+    password is needed: whoever sits at the computer owns Sténo. From the
+    network, the current password is required.
+    """
+    remote = _is_remote(request)
+    with SessionLocal() as db:
+        config = app_settings.load(db, app_settings.ACCESS, AccessSettings)
+        if config.password_hash:
+            trusted = not remote and not config.require_local
+            if not trusted and not auth.verify_password(payload.current_password or "", config.password_hash):
+                raise HTTPException(403, "Mot de passe actuel incorrect")
+        elif remote:
+            raise HTTPException(403, auth.ERROR_NETWORK_DISABLED)
+        if "new_password" in payload.model_fields_set:
+            config.password_hash = auth.hash_password(payload.new_password) if payload.new_password else None
+            # Every session opened with the previous password closes.
+            config.version += 1
+            if not config.password_hash:
+                config.require_local = False
+        if payload.require_local is not None:
+            if payload.require_local and not config.password_hash:
+                raise HTTPException(409, "Définissez d'abord un mot de passe")
+            config.require_local = payload.require_local
+        config.secret = config.secret or auth.new_secret()
+        auth.save(db, config)
+        db.commit()
+    if config.password_hash:
+        # Whoever set it stays signed in.
+        _set_session(response, request, config)
+    else:
+        response.delete_cookie(auth.COOKIE, path="/")
+    result = _access_out(config, request)
+    return result | {"authenticated": bool(config.password_hash)}
+
+
+@app.get("/network")
+def network_info():
+    """Access from the local network: the HTTPS proxy's address, and whether it has started."""
+    address = settings.lan_address.strip() or None
+    return {
+        "https_ready": (settings.data_dir / HTTPS_ROOT_CERTIFICATE).is_file(),
+        "address": address,
+        "port": settings.https_port,
+        "url": f"https://{address}:{settings.https_port}" if address else None,
+    }
+
+
+@app.get("/network/certificate")
+def network_certificate():
+    """The local certificate authority of the HTTPS proxy: install it once to remove the browser warning."""
+    path = settings.data_dir / HTTPS_ROOT_CERTIFICATE
+    if not path.is_file():
+        raise HTTPException(404, "Le proxy HTTPS n'a pas encore démarré")
+    return FileResponse(path, media_type="application/x-x509-ca-cert", filename="steno-autorite-locale.crt")
+
+
+# --- First launch (n°19) ---------------------------------------------------------------------------
+
+
+@app.get("/settings/onboarding")
+def get_onboarding():
+    """Done once finished or skipped, or as soon as the library has a video (an existing installation)."""
+    with SessionLocal() as db:
+        state = app_settings.load(db, app_settings.ONBOARDING, OnboardingSettings)
+        has_videos = db.scalar(select(Video.id).limit(1)) is not None
+    return {"done": state.done or has_videos}
+
+
+@app.put("/settings/onboarding")
+def put_onboarding(payload: OnboardingSettings):
+    with SessionLocal() as db:
+        app_settings.save(db, app_settings.ONBOARDING, payload)
+        db.commit()
+    return get_onboarding()

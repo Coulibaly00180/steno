@@ -167,6 +167,27 @@ services:
       retries: 12
       start_period: 15s
 
+  # Access from the local network (n°15), off by default:
+  #   docker compose --profile reseau up -d
+  # HTTPS with a local certificate authority, on port 8443 of this computer.
+  # Set a password first (Paramètres › Accès et sécurité): without one, the API
+  # refuses every request this proxy forwards.
+  https:
+    image: caddy:2.10-alpine
+    profiles: ["reseau"]
+    environment:
+      LAN_ADDRESS: ${LAN_ADDRESS:-steno.local}
+    ports:
+      - "${HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and the local authority; the API serves its root certificate.
+      - ./data/https:/data
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:

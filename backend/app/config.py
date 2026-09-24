@@ -72,6 +72,11 @@ class Settings(BaseSettings):
     # any page could make Sténo query the Docker services.
     url_import_allow_private: bool = False
 
+    # Access from the local network (n°15): the address the HTTPS proxy answers
+    # on (set by the Windows installer) and its port, shown in the settings.
+    lan_address: str = ""
+    https_port: int = Field(default=8443, ge=1, le=65535)
+
     @property
     def uploads_dir(self) -> Path:
         return self.data_dir / "uploads"

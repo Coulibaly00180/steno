@@ -28,7 +28,8 @@ from .db import SessionLocal
 from .exports import write_exports
 from .llm import final_summary, summarize_chunk, summarize_group, translate_chunk
 from .models import (
-    Chapter, JobDuration, ProcessingJob, Summary, SummaryTemplate, TranscriptSegment, Video, VideoEntityState, VideoIndex,
+    Chapter, JobDuration, ProcessingJob, Summary, SummaryTemplate, TranscriptSegment, Video, VideoClip, VideoEntityState,
+    VideoIndex,
 )
 from .diarization import assign_speakers, diarize
 from .retrieval import build_passages, embed_texts, record_index_failure, transcript_hash, write_index
@@ -36,7 +37,7 @@ from .speakers import apply_turns, build_transcript, speaker_labels
 from .storage import StorageError, can_compact, compact_to_audio, delete_media
 from .transcription import StallWatchdog, transcribe_windows
 from .utils import ffprobe_duration, split_text, timestamp
-from . import actions, ai_models, entities, url_import
+from . import actions, ai_models, clips, entities, url_import
 
 _whisper_model = None
 
@@ -105,7 +106,8 @@ def check_cancelled(job_id: str) -> None:
 def _record_duration(db, job: ProcessingJob) -> None:
     """Keep how long the job took: queue estimates learn from it (n°13)."""
     video = db.get(Video, job.video_id)
-    if video is None or job.started_at is None or not video.duration_seconds:
+    if video is None or job.started_at is None or not video.duration_seconds or job.kind == "CLIP":
+        # A clip's time depends on the clip's length, not the video's.
         return
     elapsed = (_aware(job.finished_at) - _aware(job.started_at)).total_seconds()
     if elapsed > 0:
@@ -442,6 +444,75 @@ def _load_template(template_id: str | None) -> tuple[str, str | None, str | None
         return tpl.prompt, tpl.name, tpl.id
 
 
+def compose_summary(
+    *,
+    source_text: str,
+    output_language: str,
+    summary_length: str,
+    duration_seconds: float,
+    template_prompt: str,
+    custom_prompt: str | None,
+    vocabulary: list[str],
+    cache: dict | None = None,
+    on_stage=None,
+) -> tuple[str, list[str], list[tuple[float, str]], str]:
+    """The summary itself, without any database write: (final, block summaries, chapters, cache key).
+
+    Shared by the analyses and the quality runs on the reference corpus (n°4),
+    so a quality run measures exactly what a user gets. `on_stage(stage, progress)`
+    reports the step; progress runs from 72 to 90 as in a FULL job.
+    """
+    report = on_stage or (lambda stage, progress: None)
+    detailed = summary_length == "detailed"
+    budget = word_budget(duration_seconds, summary_length)
+    key = summary_cache_key(source_text, output_language, detailed)
+
+    if cache and cache.get("key") == key:
+        # Same text at the same detail level: only the final summary changes.
+        blocks = list(cache["blocks"])
+        chapters = [(float(start), title) for start, title in cache["chapters"]]
+        report("SUMMARIZING_CHUNKS", 85)
+    else:
+        report("SUMMARIZING_CHUNKS", 72)
+        blocks, found = [], []
+        chunks = split_text(source_text, settings.summary_chunk_chars)
+        total = max(1, len(chunks))
+        for idx, chunk in enumerate(chunks, 1):
+            result = summarize_chunk(chunk, output_language, detailed=detailed, vocabulary=vocabulary)
+            blocks.append(f"{_range_heading(chunk_time_range(chunk))}\n{result.text}")
+            found.extend(block_chapters(result.chapters, chunk))
+            report("SUMMARIZING_CHUNKS", 72 + int(13 * idx / total))
+        chapters = keep_main_chapters(merge_chapters(found), chapter_limit(duration_seconds))
+
+    summaries = blocks
+    input_budget = final_input_budget(final_output_tokens(budget))
+    if len(summaries) > 1 and estimated_tokens("\n\n".join(summaries)) > input_budget:
+        report("SUMMARIZING_GROUPS", 85)
+        summaries = reduce_block_summaries(
+            summaries,
+            output_language,
+            budget_tokens=input_budget,
+            detailed=detailed,
+            vocabulary=vocabulary,
+            on_group_done=lambda done, count: report("SUMMARIZING_GROUPS", 85 + int(5 * done / count)),
+        )
+
+    report("SUMMARIZING_FINAL", 90)
+    if summaries:
+        final = final_summary(
+            "\n\n".join(summaries),
+            template_prompt,
+            output_language,
+            word_budget=budget,
+            instructions=custom_prompt,
+            vocabulary=vocabulary,
+        )
+    else:
+        # Nothing was said: asking the LLM would only invite invention.
+        final = NO_SPEECH_SUMMARY
+    return final, blocks, chapters, key
+
+
 def summarize_transcript(
     job_id: str,
     video_id: str,
@@ -456,10 +527,6 @@ def summarize_transcript(
     language_code: str | None,
 ) -> None:
     """Block summaries and chapters (cached), reduction, final summary; persist all."""
-    detailed = summary_length == "detailed"
-    budget = word_budget(duration_seconds, summary_length)
-    key = summary_cache_key(source_text, output_language, detailed)
-
     with SessionLocal() as db:
         video = db.get(Video, video_id)
         if not video:
@@ -469,52 +536,19 @@ def summarize_transcript(
         except ValueError:
             cache = None
 
-    if cache and cache.get("key") == key:
-        # Same text at the same detail level: only the final summary changes.
-        blocks = list(cache["blocks"])
-        chapters = [(float(start), title) for start, title in cache["chapters"]]
-        set_job(job_id, stage="SUMMARIZING_CHUNKS", progress=85)
-    else:
-        set_job(job_id, stage="SUMMARIZING_CHUNKS", progress=72)
-        blocks, found = [], []
-        chunks = split_text(source_text, settings.summary_chunk_chars)
-        total = max(1, len(chunks))
-        for idx, chunk in enumerate(chunks, 1):
-            result = summarize_chunk(chunk, output_language, detailed=detailed, vocabulary=vocabulary)
-            blocks.append(f"{_range_heading(chunk_time_range(chunk))}\n{result.text}")
-            found.extend(block_chapters(result.chapters, chunk))
-            set_job(job_id, progress=72 + int(13 * idx / total))
-        chapters = keep_main_chapters(merge_chapters(found), chapter_limit(duration_seconds))
-
-    summaries = blocks
-    input_budget = final_input_budget(final_output_tokens(budget))
-    if len(summaries) > 1 and estimated_tokens("\n\n".join(summaries)) > input_budget:
-        set_job(job_id, stage="SUMMARIZING_GROUPS", progress=85)
-        summaries = reduce_block_summaries(
-            summaries,
-            output_language,
-            budget_tokens=input_budget,
-            detailed=detailed,
-            vocabulary=vocabulary,
-            on_group_done=lambda done, count: set_job(job_id, progress=85 + int(5 * done / count)),
-        )
-
     # Additional instructions complement the template, they never replace it (F-T.2).
     template_prompt, _, actual_template_id = _load_template(template_id)
-
-    set_job(job_id, stage="SUMMARIZING_FINAL", progress=90)
-    if summaries:
-        final = final_summary(
-            "\n\n".join(summaries),
-            template_prompt,
-            output_language,
-            word_budget=budget,
-            instructions=custom_prompt,
-            vocabulary=vocabulary,
-        )
-    else:
-        # Nothing was said: asking the LLM would only invite invention.
-        final = NO_SPEECH_SUMMARY
+    final, blocks, chapters, key = compose_summary(
+        source_text=source_text,
+        output_language=output_language,
+        summary_length=summary_length,
+        duration_seconds=duration_seconds,
+        template_prompt=template_prompt,
+        custom_prompt=custom_prompt,
+        vocabulary=vocabulary,
+        cache=cache,
+        on_stage=lambda stage, progress: set_job(job_id, stage=stage, progress=progress),
+    )
 
     check_cancelled(job_id)
     with SessionLocal() as db:
@@ -1153,6 +1187,61 @@ def run_compact(job_id: str) -> None:
         public = str(exc) if isinstance(exc, StorageError) else exc.public_message if isinstance(exc, PipelineError) else ERROR_COMPACT_FAILED
         try:
             # Only the job fails: the video and its media are untouched.
+            set_job(job_id, stage="FAILED", status="FAILED", error=public)
+        except JobCancelled:
+            pass
+
+
+def _finish_clip(clip_id: str | None, *, status: str, error: str | None = None, path: Path | None = None) -> None:
+    if clip_id is None:
+        return
+    with SessionLocal() as db:
+        clip = db.get(VideoClip, clip_id)
+        if clip is None:
+            # Deleted while it was being cut: the file has no row to belong to.
+            if path is not None:
+                path.unlink(missing_ok=True)
+            return
+        clip.status, clip.error = status, error
+        if path is not None:
+            clip.filename, clip.size_bytes = path.name, path.stat().st_size
+        db.commit()
+
+
+def run_clip(job_id: str) -> None:
+    """CLIP job: cut a passage out of a video (n°7). A failure only fails the clip."""
+    clip_id = None
+    if not _claim(job_id):
+        return
+    try:
+        with SessionLocal() as db:
+            clip = db.scalar(select(VideoClip).where(VideoClip.job_id == job_id))
+            if clip is None:
+                raise PipelineError("Extrait introuvable")
+            clip_id = clip.id
+            clip.status = "RUNNING"
+            db.commit()
+        set_job(job_id, stage="CLIPPING", progress=3)
+        last = [3]
+
+        def progress(share: float) -> None:
+            value = 3 + int(95 * share)
+            if value >= last[0] + 4:
+                last[0] = value
+                set_job(job_id, progress=value)
+
+        path = clips.render(clip_id, on_progress=progress)
+        check_cancelled(job_id)
+        _finish_clip(clip_id, status="READY", path=path)
+        set_job(job_id, stage="COMPLETED", status="COMPLETED", progress=100)
+    except JobCancelled:
+        logger.info("Clip job %s cancelled", job_id)
+        _finish_clip(clip_id, status="CANCELLED")
+    except Exception as exc:
+        logger.exception("Clip job %s failed", job_id)
+        public = str(exc) if isinstance(exc, StorageError) else exc.public_message if isinstance(exc, PipelineError) else "Échec de la découpe"
+        _finish_clip(clip_id, status="FAILED", error=public)
+        try:
             set_job(job_id, stage="FAILED", status="FAILED", error=public)
         except JobCancelled:
             pass

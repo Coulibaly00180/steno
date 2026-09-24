@@ -23,7 +23,7 @@ import sys
 import tarfile
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -34,10 +34,12 @@ from .config import settings
 from .db import SessionLocal
 from .exports import write_exports
 from .models import (
+    ActionItem,
     Chapter,
     GlossaryTerm,
     LibraryConversation,
     LibraryMessage,
+    MeetingSeries,
     Speaker,
     Summary,
     SummaryTemplate,
@@ -103,7 +105,8 @@ def _file_member(name: str, path: Path) -> Iterator[bytes]:
     yield _padding(size)
 
 
-def video_document(video: Video, template_names: dict[str, str]) -> dict:
+def video_document(video: Video, template_names: dict[str, str], *, series_name: str | None = None,
+                   actions: list[ActionItem] = ()) -> dict:
     positions = {speaker.id: speaker.position for speaker in video.speakers}
     source = Path(video.path)
     return {
@@ -140,6 +143,16 @@ def video_document(video: Video, template_names: dict[str, str]) -> dict:
         ],
         "chapters": [{"start": c.start_seconds, "title": c.title} for c in video.chapters],
         "tags": [tag.name for tag in video.tags],
+        # Added with the meeting series and the actions (n°5, n°6): absent from older archives.
+        "series": series_name,
+        "actions": [
+            {
+                "kind": a.kind, "text": a.text, "owner": a.owner, "due_text": a.due_text,
+                "due_date": a.due_date.isoformat() if a.due_date else None, "status": a.status,
+                "start_seconds": a.start_seconds, "source": a.source, "edited": a.edited, "position": a.position,
+            }
+            for a in actions
+        ],
         "chat": [
             {"id": m.id, "role": m.role, "content": m.content, "interrupted": m.interrupted, "created_at": _iso(m.created_at)}
             for m in video.chat_messages
@@ -173,7 +186,9 @@ def export_stream(include_media: bool) -> Iterator[bytes]:
             video = db.get(Video, video_id)
             if video is None:  # deleted during the export
                 continue
-            document = video_document(video, template_names)
+            series_name = db.scalar(select(MeetingSeries.name).where(MeetingSeries.id == video.series_id)) if video.series_id else None
+            items = list(db.scalars(select(ActionItem).where(ActionItem.video_id == video.id).order_by(ActionItem.position)))
+            document = video_document(video, template_names, series_name=series_name, actions=items)
             source = Path(video.path)
         yield _json_member(f"videos/{video_id}/video.json", document)
         if include_media and source.is_file():
@@ -325,6 +340,25 @@ def _insert_video(db, document: dict, path: Path, template_ids: dict[str, str]) 
             edited_at=_date(s.get("edited_at")), created_at=_date(s.get("created_at")) or datetime.now(timezone.utc),
         ))
     db.add_all([Chapter(video_id=video.id, start_seconds=float(c["start"]), title=str(c["title"])[:200]) for c in document.get("chapters") or []])
+    series_name = str(document.get("series") or "").strip()[:120]
+    if series_name:
+        found = db.scalar(select(MeetingSeries).where(func.lower(MeetingSeries.name) == series_name.lower()))
+        if found is None:
+            found = MeetingSeries(id=str(uuid.uuid4()), name=series_name)
+            db.add(found)
+            db.flush()
+        video.series_id = found.id
+    for index, a in enumerate(document.get("actions") or []):
+        if a.get("kind") not in ("action", "decision") or not str(a.get("text") or "").strip():
+            continue
+        db.add(ActionItem(
+            id=str(uuid.uuid4()), video_id=video.id, kind=a["kind"], text=str(a["text"])[:400],
+            owner=(str(a["owner"])[:80] if a.get("owner") else None), due_text=(str(a["due_text"])[:80] if a.get("due_text") else None),
+            due_date=date.fromisoformat(a["due_date"]) if a.get("due_date") else None,
+            status=a.get("status") if a.get("status") in ("open", "done", "dropped") else "open",
+            start_seconds=a.get("start_seconds"), source=str(a.get("source") or "auto")[:16], edited=bool(a.get("edited")),
+            position=int(a.get("position") if a.get("position") is not None else index),
+        ))
     db.add_all([
         VideoChatMessage(
             id=str(uuid.uuid4()), video_id=video.id, role=str(m["role"])[:16], content=str(m["content"]),

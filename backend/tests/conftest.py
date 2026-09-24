@@ -56,6 +56,16 @@ def no_action_llm(monkeypatch):
     monkeypatch.setattr(actions, "extract", lambda video, summary: [])
 
 
+@pytest.fixture(autouse=True)
+def open_access(monkeypatch):
+    """No password (n°15) unless a test sets one: the access check never reads the database."""
+    from app import auth
+    from app.schemas import AccessSettings
+
+    monkeypatch.setattr(auth, "cached", lambda: AccessSettings())
+    monkeypatch.setattr(auth, "load", lambda: AccessSettings())
+
+
 @pytest.fixture
 def upload_environment(monkeypatch, tmp_path):
     """Use an isolated SQLite database and filesystem-backed upload directory."""
