@@ -27,14 +27,16 @@ from .config import INDEX_QUEUE_NAME, settings
 from .db import SessionLocal
 from .exports import write_exports
 from .llm import final_summary, summarize_chunk, summarize_group, translate_chunk
-from .models import Chapter, JobDuration, ProcessingJob, Summary, SummaryTemplate, TranscriptSegment, Video, VideoIndex
+from .models import (
+    Chapter, JobDuration, ProcessingJob, Summary, SummaryTemplate, TranscriptSegment, Video, VideoEntityState, VideoIndex,
+)
 from .diarization import assign_speakers, diarize
 from .retrieval import build_passages, embed_texts, record_index_failure, transcript_hash, write_index
 from .speakers import apply_turns, build_transcript, speaker_labels
 from .storage import StorageError, can_compact, compact_to_audio, delete_media
 from .transcription import StallWatchdog, transcribe_windows
 from .utils import ffprobe_duration, split_text, timestamp
-from . import url_import
+from . import ai_models, entities, url_import
 
 _whisper_model = None
 
@@ -62,6 +64,7 @@ ERROR_TRANSCRIPTION_STALLED = "La transcription s'est bloquée ; relancez le tra
 ERROR_INDEX_FAILED = "Échec de l'indexation pour les questions"
 ERROR_DIARIZATION_FAILED = "Échec de l'identification des intervenants"
 ERROR_COMPACT_FAILED = "Échec de la conversion en audio seul"
+ERROR_ENTITIES_FAILED = "Échec du relevé des personnes, organisations et dates"
 NO_SPEECH_SUMMARY = "Aucun contenu parlé détecté."
 # Room kept in the context window for the final prompt's own instructions.
 FINAL_PROMPT_OVERHEAD_TOKENS = 1024
@@ -265,7 +268,7 @@ def get_whisper_model():
     if _whisper_model is None:
         from faster_whisper import WhisperModel
         _whisper_model = WhisperModel(
-            settings.whisper_model,
+            ai_models.whisper_model(),
             device=settings.whisper_device,
             compute_type=settings.whisper_compute_type,
         )
@@ -525,7 +528,7 @@ def summarize_transcript(
             language=language_code,
             summary_length=summary_length,
             content_markdown=final,
-            model=settings.llm_model,
+            model=ai_models.llm_model(),
         ))
         db.execute(delete(Chapter).where(Chapter.video_id == video.id))
         db.add_all([Chapter(video_id=video.id, start_seconds=start, title=title) for start, title in chapters])
@@ -590,8 +593,12 @@ def index_video(video_id: str, on_progress=None, job_id: str | None = None) -> i
 
 
 def _index_after_pipeline(job_id: str, video_id: str) -> None:
-    """The chat works without the index (on the start of a long transcript): never fail the video for it."""
+    """The chat works without the index (on the start of a long transcript): never fail the video for it.
+
+    The entities (n°16) are left to a background job: ~one LLM call per block.
+    """
     set_job(job_id, stage="INDEXING", progress=98)
+    enqueue_entities_job(video_id)
     try:
         index_video(video_id, job_id=job_id)
     except JobCancelled:
@@ -697,6 +704,7 @@ def run_diarize(job_id: str) -> None:
             db.commit()
         _write_exports(job_id, video_id)
         enqueue_index_job(video_id)
+        enqueue_entities_job(video_id)
         set_job(job_id, stage="COMPLETED", status="COMPLETED", progress=100)
     except JobCancelled:
         logger.info("Diarization job %s cancelled", job_id)
@@ -710,24 +718,24 @@ def run_diarize(job_id: str) -> None:
             pass
 
 
-def enqueue_index_job(video_id: str) -> str | None:
-    """Queue an INDEX job unless one is already waiting for this video."""
+def _enqueue_background(video_id: str, kind: str, function: str) -> str | None:
+    """Queue a background job (secondary queue) unless one is already waiting for this video."""
     with SessionLocal() as db:
         waiting = db.scalar(
             select(ProcessingJob.id).where(
-                ProcessingJob.video_id == video_id, ProcessingJob.kind == "INDEX", ProcessingJob.status == "QUEUED"
+                ProcessingJob.video_id == video_id, ProcessingJob.kind == kind, ProcessingJob.status == "QUEUED"
             )
         )
         if waiting:
             return waiting
-        job = ProcessingJob(id=str(uuid.uuid4()), video_id=video_id, kind="INDEX", stage="QUEUED", status="QUEUED", progress=0)
+        job = ProcessingJob(id=str(uuid.uuid4()), video_id=video_id, kind=kind, stage="QUEUED", status="QUEUED", progress=0)
         db.add(job)
         db.commit()
     try:
         queue = Queue(INDEX_QUEUE_NAME, connection=Redis.from_url(settings.redis_url), default_timeout=21600)
-        rq_job = queue.enqueue("app.worker.run_index", job.id, job_timeout=21600, result_ttl=86400)
+        rq_job = queue.enqueue(function, job.id, job_timeout=21600, result_ttl=86400)
     except Exception:
-        logger.warning("Unable to enqueue index job for video %s", video_id, exc_info=True)
+        logger.warning("Unable to enqueue %s job for video %s", kind, video_id, exc_info=True)
         with SessionLocal() as db:
             db.execute(delete(ProcessingJob).where(ProcessingJob.id == job.id))
             db.commit()
@@ -740,22 +748,115 @@ def enqueue_index_job(video_id: str) -> str | None:
     return job.id
 
 
-def enqueue_missing_indexes() -> int:
-    """Catch-up (n°6): every processed video whose passages are missing, stale or from another model."""
+def enqueue_index_job(video_id: str) -> str | None:
+    """Queue an INDEX job unless one is already waiting for this video."""
+    return _enqueue_background(video_id, "INDEX", "app.worker.run_index")
+
+
+def enqueue_entities_job(video_id: str) -> str | None:
+    """Queue an ENTITIES job (n°16) unless one is already waiting for this video."""
+    return _enqueue_background(video_id, "ENTITIES", "app.worker.run_entities")
+
+
+def _processed_without(state_table, *conditions) -> list[str]:
+    """Processed videos with no READY row in `state_table`, and no job of its kind waiting."""
     with SessionLocal() as db:
-        indexed = select(VideoIndex.video_id).where(
-            VideoIndex.status == "READY", VideoIndex.model == settings.embedding_model
-        )
-        waiting = select(ProcessingJob.video_id).where(
-            ProcessingJob.kind == "INDEX", ProcessingJob.status.in_(("QUEUED", "RUNNING"))
-        )
-        video_ids = list(db.scalars(
+        done = select(state_table.video_id).where(state_table.status == "READY", *conditions)
+        return list(db.scalars(
             select(Video.id)
-            .where(Video.status == "COMPLETED", Video.transcript_text.is_not(None))
-            .where(Video.id.not_in(indexed), Video.id.not_in(waiting))
+            .where(Video.status == "COMPLETED", Video.transcript_text.is_not(None), Video.id.not_in(done))
             .order_by(Video.created_at.desc())
         ))
+
+
+def _waiting(kind: str) -> set[str]:
+    with SessionLocal() as db:
+        return set(db.scalars(select(ProcessingJob.video_id).where(
+            ProcessingJob.kind == kind, ProcessingJob.status.in_(("QUEUED", "RUNNING"))
+        )))
+
+
+def enqueue_missing_indexes() -> int:
+    """Catch-up (n°6): every processed video whose passages are missing, stale or from another model."""
+    waiting = _waiting("INDEX")
+    video_ids = [v for v in _processed_without(VideoIndex, VideoIndex.model == settings.embedding_model) if v not in waiting]
     return sum(1 for video_id in video_ids if enqueue_index_job(video_id))
+
+
+def enqueue_missing_entities() -> int:
+    """Catch-up (n°16): processed videos whose entities are missing or stale (videos imported before, edits)."""
+    waiting = _waiting("ENTITIES")
+    video_ids = [v for v in _processed_without(VideoEntityState) if v not in waiting]
+    return sum(1 for video_id in video_ids if enqueue_entities_job(video_id))
+
+
+def extract_video_entities(video_id: str, on_progress=None, job_id: str | None = None) -> int:
+    """Find the video's entities and store them; returns the number of mentions (n°16).
+
+    The LLM calls run outside any transaction; the result is saved only if the
+    transcript was not corrected meanwhile (a newer job extracts it again).
+    """
+    with SessionLocal() as db:
+        video = db.get(Video, video_id)
+        if not video or not video.transcript_text:
+            raise PipelineError(ERROR_VIDEO_NOT_FOUND if not video else "La transcription n'est pas disponible")
+        transcript = video.transcript_text
+        source_hash = transcript_hash(transcript)
+        vocabulary = llm_terms(effective_vocabulary(split_stored_terms(video.vocabulary), split_stored_terms(video.glossary_snapshot)))
+    found = entities.extract(transcript, vocabulary=vocabulary, on_block=on_progress)
+    if job_id:
+        check_cancelled(job_id)
+    with SessionLocal() as db:
+        video = db.get(Video, video_id)
+        if not video:
+            raise PipelineError(ERROR_VIDEO_NOT_FOUND)
+        if transcript_hash(video.transcript_text) != source_hash:
+            logger.info("Transcript of %s changed during entity extraction; left to the next job", video_id)
+            return 0
+        count = entities.write(db, video_id, found, source_hash)
+        db.commit()
+    return count
+
+
+def run_entities(job_id: str) -> None:
+    """ENTITIES job: people, organisations, places and dates of a video (n°16)."""
+    video_id = None
+    if not _claim(job_id):
+        return
+    try:
+        with SessionLocal() as db:
+            job = db.get(ProcessingJob, job_id)
+            video_id = job.video_id if job else None
+        if video_id is None:
+            raise PipelineError(ERROR_JOB_NOT_FOUND)
+        set_job(job_id, stage="EXTRACTING_ENTITIES", progress=5)
+        extract_video_entities(
+            video_id,
+            on_progress=lambda done, total: set_job(job_id, progress=5 + int(90 * done / total)),
+            job_id=job_id,
+        )
+        set_job(job_id, stage="COMPLETED", status="COMPLETED", progress=100)
+    except JobCancelled:
+        logger.info("Entities job %s cancelled", job_id)
+    except Exception as exc:
+        logger.exception("Entities job %s failed", job_id)
+        if video_id:
+            with SessionLocal() as db:
+                video = db.get(Video, video_id)
+                if video:
+                    entities.record_failure(db, video_id, transcript_hash(video.transcript_text), str(exc)[:500])
+                    db.commit()
+        try:
+            set_job(job_id, stage="FAILED", status="FAILED", error=ERROR_ENTITIES_FAILED)
+        except JobCancelled:
+            pass
+
+
+def mark_entities_stale(db, video_id: str) -> None:
+    """A corrected transcript: its entities are extracted again (the caller commits and enqueues)."""
+    state = db.get(VideoEntityState, video_id)
+    if state:
+        state.status = "STALE"
 
 
 def run_index(job_id: str) -> None:

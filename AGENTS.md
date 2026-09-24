@@ -79,6 +79,10 @@ Vérifier que le GPU est bien utilisé : `docker compose exec worker python -c "
 | Enregistrement depuis le navigateur (morceaux envoyés au fil de l'eau, `/recordings`) | `/recordings` dans `main.py`, `frontend/app/record/`, `frontend/lib/recorder.ts` |
 | Service `live` : transcription en direct d'un enregistrement (aperçu, petit modèle) | `backend/app/live.py` (`LiveDecoder`, `LiveTranscriber`), table `live_segments` |
 | Import d'un lien (fichier, flux RSS, plateformes vidéo via yt-dlp si l'option est activée ; étape « Téléchargement » du worker, adresses privées refusées) | `backend/app/url_import.py`, `download_source` (`worker.py`), `frontend/components/LinkImport.tsx`, `UrlImportPanel.tsx` |
+| Personnes, organisations, lieux, dates : extraction (tâche de fond `ENTITIES`), fiches, fusion | `backend/app/entities.py`, `llm.extract_entities`, `run_entities` (`worker.py`), `/entities` (`main.py`), pages `frontend/app/entities/` |
+| Recherche hybride de la bibliothèque (mots + sens, RRF, seuil `SEMANTIC_MAX_DISTANCE`) et collections | `list_videos` et `/library/searches` (`main.py`) |
+| Pouces sur les réponses, export Markdown, recherche et renommage des conversations | `main.py` (colonnes `feedback`), `frontend/components/AnswerFeedback.tsx` |
+| Modèles utilisés (LLM, Whisper) choisis dans l'interface, tests de vitesse, VRAM | `backend/app/ai_models.py` (toujours passer par `llm_model()` / `whisper_model()`), `/models` (`main.py`), `gpu_state` et `serve_benchmark` (`live.py`), page `frontend/app/models/` |
 
 Spécifications et choix : `docs/specs/`.
 

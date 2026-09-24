@@ -15,6 +15,7 @@ from redis import Redis
 from rq import Queue, Worker
 from sqlalchemy import text
 
+from . import ai_models
 from .config import QUEUE_NAME, settings
 from .db import engine
 from .schema import database_revision, head_revision
@@ -23,6 +24,10 @@ from .schema import database_revision, head_revision
 SCHEDULER_HEARTBEAT_KEY = "steno:scheduler:heartbeat"
 # Written by the live transcription service (app.live) while it runs.
 LIVE_HEARTBEAT_KEY = "steno:live:heartbeat"
+# Also written by the live service (it runs on the GPU): card memory, Whisper speed tests (n°20).
+GPU_KEY = "steno:gpu"
+BENCHMARK_KEY = "steno:benchmark:"
+BENCHMARK_QUEUE = "steno:benchmark:queue"
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +143,7 @@ def check_ollama() -> dict:
             return _result("ok", f"{name} · présent")
         return _result("down", f"{name} absent — lancez le service model-pull")
 
-    return {"ollama": _result("ok", version), "model": presence(settings.llm_model), "embedding": presence(settings.embedding_model)}
+    return {"ollama": _result("ok", version), "model": presence(ai_models.llm_model()), "embedding": presence(settings.embedding_model)}
 
 
 async def _run(check, services: tuple[str, ...]) -> dict:

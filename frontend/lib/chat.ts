@@ -1,10 +1,10 @@
-import { API, responseError } from "./api";
+import { API, api, responseError } from "./api";
 
-export type ChatMessage = { id: string; video_id: string; role: "user" | "assistant"; content: string; interrupted?: boolean; created_at: string };
+export type ChatMessage = { id: string; video_id: string; role: "user" | "assistant"; content: string; interrupted?: boolean; feedback?: number | null; created_at: string };
 export type Source = { n: number; video_id: string; title: string; start_seconds: number; end_seconds: number };
 export type SourcesEvent = { conversation_id: string; sources: Source[]; searched: number; skipped: number };
-export type Conversation = { id: string; title: string; scope: string | null; video_count: number; created_at: string; updated_at: string };
-export type ConversationMessage = { id: string; role: "user" | "assistant"; content: string; sources: Source[]; interrupted: boolean; created_at: string };
+export type Conversation = { id: string; title: string; scope: string | null; video_count: number; created_at: string; updated_at: string; flagged?: boolean };
+export type ConversationMessage = { id: string; role: "user" | "assistant"; content: string; sources: Source[]; interrupted: boolean; feedback?: number | null; created_at: string };
 export type ConversationDetail = Conversation & { video_ids: string[]; messages: ConversationMessage[] };
 
 /** The model failed mid-answer; `saved` tells whether what was written so far was kept. */
@@ -64,12 +64,17 @@ export async function streamChat(videoId: string, question: string, onDelta: (te
 export async function streamLibraryChat(
   body: { question: string; video_ids?: string[]; conversation_id?: string | null; scope?: string | null },
   onSources: (event: SourcesEvent) => void, onDelta: (text: string) => void, signal?: AbortSignal,
-): Promise<string> {
-  let answer = "";
+): Promise<{ answer: string; messageId: string | null }> {
+  let answer = "", messageId: string | null = null;
   await postEvents("/library/chat/stream", body, (event, data) => {
     if (event === "sources") onSources(data);
     else if (event === "delta") onDelta(data.text);
-    else if (event === "done") { answer = data.answer; return true; }
+    else if (event === "done") { answer = data.answer; messageId = data.message_id ?? null; return true; }
   }, signal);
-  return answer;
+  return { answer, messageId };
+}
+
+/** n°18: thumbs on an answer; null removes the rating. */
+export function rateAnswer(path: string, value: number | null) {
+  return api<{ feedback: number | null }>(path, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value }) });
 }

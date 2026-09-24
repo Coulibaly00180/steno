@@ -49,3 +49,5 @@ services:
     environment:
       # The chat sends up to 30 000 characters of transcript.
       LLM_NUM_CTX: "32768"
+      # Same default as the worker: the models page shows the model really used.
+      WHISPER_MODEL: large-v3-turbo

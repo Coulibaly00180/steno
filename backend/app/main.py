@@ -5,6 +5,8 @@ import re
 import shutil
 import subprocess
 import unicodedata
+
+import httpx
 import uuid
 import logging
 from urllib.parse import quote, unquote, urlsplit
@@ -40,7 +42,7 @@ from .analysis_options import (
     split_stored_terms,
     whisper_terms,
 )
-from . import app_settings, backups, portable, url_import, watch_folder
+from . import ai_models, app_settings, backups, entities, portable, url_import, watch_folder
 from .config import QUEUE_NAME, settings
 from .learning import corrections_between, record_corrections, replacement_pair
 from .learning import dismiss as dismiss_suggestion
@@ -68,12 +70,15 @@ from .llm import (
     video_answer_prompt,
 )
 from .models import (
+    Entity,
+    EntityMention,
     GlossaryTerm,
     LibraryConversation,
     LibraryMessage,
     LiveSegment,
     ProcessingJob,
     Recording,
+    SavedSearch,
     Summary,
     SummaryTemplate,
     Tag,
@@ -81,6 +86,7 @@ from .models import (
     Video,
     Speaker,
     VideoChatMessage,
+    VideoEntityState,
     VideoIndex,
     utcnow,
     video_tags,
@@ -92,6 +98,14 @@ from .queue_info import ACTIVE_JOB_STATUSES, QueueInfo, queue_snapshot
 from .schema import assert_schema_current
 from .schemas import (
     BackupSettings,
+    BenchmarkIn,
+    ConversationRenameIn,
+    EntityMergeIn,
+    EntityUpdateIn,
+    FeedbackIn,
+    ModelPullIn,
+    ModelSettings,
+    SavedSearchIn,
     GlossarySuggestionOut,
     GlossaryTermIn,
     ImportOptionsIn,
@@ -128,9 +142,9 @@ from .schemas import (
     VideoDetail,
     VideoListItem,
 )
-from .status import system_status
+from .status import BENCHMARK_KEY, BENCHMARK_QUEUE, GPU_KEY, system_status
 from .utils import ffprobe_duration, timestamp
-from .worker import DEFAULT_TEMPLATE, enqueue_index_job
+from .worker import DEFAULT_TEMPLATE, enqueue_entities_job, enqueue_index_job, mark_entities_stale
 
 logger = logging.getLogger(__name__)
 UPLOAD_CHUNK_SIZE = 1024 * 1024
@@ -141,8 +155,8 @@ CHAT_PASSAGES = 12
 LIBRARY_PASSAGES = 12
 LIBRARY_PASSAGES_PER_VIDEO = 4
 LIBRARY_MAX_VIDEOS = 500
-# Background jobs of the semantic index: never "the video's job" in the interface.
-INDEX_KIND = "INDEX"
+# Background jobs (semantic index, entities): never "the video's job" in the interface.
+BACKGROUND_KINDS = ("INDEX", "ENTITIES")
 CUSTOM_PROMPT_MAX_CHARS = 2000
 DEFAULT_TEMPLATE_NAME = "Compte-rendu de réunion"
 TERMINAL_JOB_STATUSES = ("COMPLETED", "FAILED", "CANCELLED")
@@ -252,11 +266,11 @@ def _latest_jobs(db, video_ids: list[str]) -> dict[str, ProcessingJob]:
         return {}
     latest = (
         select(ProcessingJob.video_id, func.max(ProcessingJob.created_at).label("created_at"))
-        .where(ProcessingJob.video_id.in_(video_ids), ProcessingJob.kind != INDEX_KIND)
+        .where(ProcessingJob.video_id.in_(video_ids), ProcessingJob.kind.not_in(BACKGROUND_KINDS))
         .group_by(ProcessingJob.video_id)
         .subquery()
     )
-    rows = db.scalars(select(ProcessingJob).where(ProcessingJob.kind != INDEX_KIND).join(
+    rows = db.scalars(select(ProcessingJob).where(ProcessingJob.kind.not_in(BACKGROUND_KINDS)).join(
         latest, and_(ProcessingJob.video_id == latest.c.video_id, ProcessingJob.created_at == latest.c.created_at)
     ))
     return {job.video_id: job for job in rows}
@@ -373,49 +387,112 @@ def _snippets(db, video_ids: list[str], words: list[str]) -> dict[str, dict]:
     return snippets
 
 
+# Hybrid search (n°17): videos whose passages are close to the query in meaning
+# join those containing its words. Beyond this cosine distance (bge-m3), a
+# passage is not about the query. Measured on a laptop review (2026-09-24):
+# queries on its subject 0.37-0.47, « prix et promotions » 0.52, off-topic
+# (« réunion budget », « météo », « football ») 0.56-0.72.
+SEMANTIC_MAX_DISTANCE = 0.52
+SEMANTIC_VIDEOS = 30
+# Reciprocal rank fusion: a video ranked well by either search comes first.
+RRF_K = 60
+
+
+def _semantic_matches(db, filters: list, q: str) -> dict[str, Hit] | None:
+    """Closest passage of each video in the filtered library; None when the embeddings are unavailable."""
+    candidates = list(db.scalars(select(Video.id).where(Video.status == "COMPLETED", *filters)))
+    ready = sorted(ready_video_ids(db, candidates))
+    if not ready:
+        return {}
+    try:
+        query = embed_texts([q.strip()])[0]
+    except Exception:
+        logger.warning("Query embedding failed; library search by words only", exc_info=True)
+        return None
+    hits = search(db, ready, query, limit=SEMANTIC_VIDEOS, per_video=1)
+    return {hit.video_id: hit for hit in hits if hit.distance <= SEMANTIC_MAX_DISTANCE}
+
+
+def semantic_snippet(hit: Hit) -> dict:
+    """The passage found by meaning, as a snippet: no word to highlight."""
+    text = " ".join(_CLOCK.sub(" ", hit.text.replace("\n", " … ")).split())
+    if len(text) > SNIPPET_LENGTH:
+        text = text[:SNIPPET_LENGTH].rsplit(" ", 1)[0] + " …"
+    return {"text": text, "ranges": [], "source": "meaning", "start_seconds": hit.start_seconds}
+
+
 @app.get("/videos", response_model=list[VideoListItem])
 def list_videos(
+    response: Response,
     q: str | None = Query(None, max_length=200),
     status: str | None = Query(None, max_length=16),
     language: str | None = Query(None, max_length=32),
     tag: str | None = Query(None, max_length=TAG_MAX_CHARS),
+    entity: int | None = None,
     created_after: datetime | None = None,
     created_before: datetime | None = None,
+    mode: str = Query("hybrid", pattern="^(hybrid|exact)$"),
     limit: int = Query(500, ge=1, le=1000),
 ):
-    """The whole library in one call (n°17): filters, full-text search, tags, latest job."""
+    """The whole library in one call (n°17): filters, hybrid search, tags, latest job.
+
+    `mode=exact`: words only. The `X-Search-Mode` header says which search ran
+    (hybrid falls back to words when the embedding model does not answer).
+    """
     if status and status not in LIBRARY_STATUS_FILTERS:
         raise HTTPException(422, "Statut de filtre inconnu")
     with SessionLocal() as db:
-        # Never load transcripts: a 6-hour one weighs ~400 kB.
-        query = select(Video).options(
-            load_only(
-                Video.id, Video.original_filename, Video.duration_seconds, Video.size_bytes, Video.status,
-                Video.detected_language, Video.target_language, Video.created_at,
-            ),
-            selectinload(Video.tags),
-        )
+        filters = []
         if status:
-            query = query.where(Video.status.in_(LIBRARY_STATUS_FILTERS[status]))
+            filters.append(Video.status.in_(LIBRARY_STATUS_FILTERS[status]))
         if language:
-            query = query.where(Video.detected_language == language.strip().lower())
+            filters.append(Video.detected_language == language.strip().lower())
         if tag and tag.strip():
-            query = query.where(Video.tags.any(func.lower(Tag.name) == tag.strip().lower()))
+            filters.append(Video.tags.any(func.lower(Tag.name) == tag.strip().lower()))
+        if entity is not None:
+            filters.append(Video.id.in_(select(EntityMention.video_id).where(EntityMention.entity_id == entity)))
         if created_after:
-            query = query.where(Video.created_at >= created_after)
+            filters.append(Video.created_at >= created_after)
         if created_before:
-            query = query.where(Video.created_at < created_before)
+            filters.append(Video.created_at < created_before)
+        # Never load transcripts: a 6-hour one weighs ~400 kB.
+        columns = load_only(
+            Video.id, Video.original_filename, Video.duration_seconds, Video.size_bytes, Video.status,
+            Video.detected_language, Video.target_language, Video.created_at,
+        )
+        query = select(Video).options(columns, selectinload(Video.tags)).where(*filters)
         order = [desc(Video.created_at)]
         words = search_words(q)
+        semantic: dict[str, Hit] = {}
+        search_mode = "exact"
         if words:
+            if mode == "hybrid":
+                found = _semantic_matches(db, filters, q or "")
+                if found is not None:
+                    semantic, search_mode = found, "hybrid"
             condition, rank = _search_condition(db, words)
             query = query.where(condition)
             if rank is not None:
                 order.insert(0, desc(rank))
         videos = list(db.scalars(query.order_by(*order).limit(limit)))
-        snippets = _snippets(db, [video.id for video in videos[:SNIPPET_RESULTS]], words)
+        text_ids = {video.id for video in videos}
+        if semantic:
+            scores = {video.id: 1 / (RRF_K + position) for position, video in enumerate(videos, 1)}
+            for position, video_id in enumerate(sorted(semantic, key=lambda key: semantic[key].distance), 1):
+                scores[video_id] = scores.get(video_id, 0.0) + 1 / (RRF_K + position)
+            known = {video.id for video in videos}
+            extra = [video_id for video_id in semantic if video_id not in known]
+            if extra:
+                videos += list(db.scalars(select(Video).options(columns, selectinload(Video.tags)).where(Video.id.in_(extra))))
+            videos = sorted(videos, key=lambda video: -scores[video.id])[:limit]
+        # A video found by meaning only shows its passage: its first word hit could be any "pour" or "les".
+        snippets = _snippets(db, [video.id for video in videos[:SNIPPET_RESULTS] if video.id in text_ids], words)
+        for video in videos[:SNIPPET_RESULTS]:
+            if video.id not in snippets and video.id in semantic:
+                snippets[video.id] = semantic_snippet(semantic[video.id])
         jobs = _latest_jobs(db, [video.id for video in videos])
         snapshot = queue_snapshot(db)
+        response.headers["X-Search-Mode"] = search_mode
         return [
             {
                 "id": video.id,
@@ -698,7 +775,7 @@ def get_video(video_id: str):
         _ = video.segments, video.summaries
         job = db.scalar(
             select(ProcessingJob)
-            .where(ProcessingJob.video_id == video_id, ProcessingJob.kind != INDEX_KIND)
+            .where(ProcessingJob.video_id == video_id, ProcessingJob.kind.not_in(BACKGROUND_KINDS))
             .order_by(desc(ProcessingJob.created_at))
         )
         template_names = dict(db.execute(select(SummaryTemplate.id, SummaryTemplate.name)).all())
@@ -769,12 +846,12 @@ def delete_video(video_id: str):
             raise HTTPException(404, "Vidéo introuvable")
         job = db.scalar(
             select(ProcessingJob)
-            .where(ProcessingJob.video_id == video_id, ProcessingJob.kind != INDEX_KIND)
+            .where(ProcessingJob.video_id == video_id, ProcessingJob.kind.not_in(BACKGROUND_KINDS))
             .order_by(desc(ProcessingJob.created_at))
             .with_for_update()
         )
         running_index = list(db.scalars(select(ProcessingJob.rq_job_id).where(
-            ProcessingJob.video_id == video_id, ProcessingJob.kind == INDEX_KIND, ProcessingJob.status == "RUNNING"
+            ProcessingJob.video_id == video_id, ProcessingJob.kind.in_(BACKGROUND_KINDS), ProcessingJob.status == "RUNNING"
         )))
         if job and job.status == "RUNNING":
             raise HTTPException(409, "Annulez le traitement en cours avant de supprimer la vidéo")
@@ -813,7 +890,7 @@ def retry_video(video_id: str):
 
         previous_job = db.scalar(
             select(ProcessingJob)
-            .where(ProcessingJob.video_id == video_id, ProcessingJob.kind != INDEX_KIND)
+            .where(ProcessingJob.video_id == video_id, ProcessingJob.kind.not_in(BACKGROUND_KINDS))
             .order_by(desc(ProcessingJob.created_at))
             .with_for_update()
         )
@@ -1305,7 +1382,7 @@ def _refuse_if_busy(db, video_id: str) -> None:
     """Edits and regenerations wait for the running job: the worker writes the same rows."""
     job = db.scalar(
         select(ProcessingJob)
-        .where(ProcessingJob.video_id == video_id, ProcessingJob.kind != INDEX_KIND)
+        .where(ProcessingJob.video_id == video_id, ProcessingJob.kind.not_in(BACKGROUND_KINDS))
         .order_by(desc(ProcessingJob.created_at))
     )
     if job and job.status in ACTIVE_JOB_STATUSES:
@@ -1412,11 +1489,13 @@ def _save_transcript_edit(db, video: Video) -> None:
     index = db.get(VideoIndex, video.id)
     if index:
         index.status = "STALE"
+    mark_entities_stale(db, video.id)
     db.commit()
     if video.status == "COMPLETED":
         write_exports(db, video.id)
-        # The chat answers from the passages: they must follow the correction.
+        # The chat answers from the passages, the entity pages from the lines: both follow the correction.
         enqueue_index_job(video.id)
+        enqueue_entities_job(video.id)
 
 
 @app.patch("/videos/{video_id}/segments/{segment_id}", response_model=SegmentOut)
@@ -1708,20 +1787,22 @@ def _library_prepare(payload: LibraryQuestion) -> dict:
     }
 
 
-def _save_library_exchange(conversation_id: str, question: str, answer: str, sources: list[dict], *, interrupted: bool) -> bool:
+def _save_library_exchange(conversation_id: str, question: str, answer: str, sources: list[dict], *, interrupted: bool) -> str | None:
+    """Save the question and its answer; returns the answer's id (None: the conversation was deleted meanwhile)."""
+    answer_id = str(uuid.uuid4())
     with SessionLocal() as db:
         conversation = db.get(LibraryConversation, conversation_id)
-        if conversation is None:  # deleted while the answer was written
-            return False
+        if conversation is None:
+            return None
         now = utcnow()
         db.add(LibraryMessage(id=str(uuid.uuid4()), conversation_id=conversation_id, role="user", content=question, created_at=now))
         db.add(LibraryMessage(
-            id=str(uuid.uuid4()), conversation_id=conversation_id, role="assistant", content=answer,
+            id=answer_id, conversation_id=conversation_id, role="assistant", content=answer,
             sources=json.dumps(sources, ensure_ascii=False), interrupted=interrupted, created_at=now + timedelta(milliseconds=1),
         ))
         conversation.updated_at = now
         db.commit()
-    return True
+    return answer_id
 
 
 def _discard_empty_conversation(conversation_id: str) -> None:
@@ -1747,14 +1828,14 @@ async def stream_library_answer(payload: LibraryQuestion):
 
     async def events():
         pieces: list[str] = []
-        saved = False
+        saved: str | None = None
 
         def keep(interrupted: bool) -> bool:
             nonlocal saved
             answer = "".join(pieces).strip()
             if not saved and answer:
                 saved = _save_library_exchange(conversation_id, payload.question, answer, sources, interrupted=interrupted)
-            return saved
+            return saved is not None
 
         try:
             yield _sse("sources", {
@@ -1768,7 +1849,7 @@ async def stream_library_answer(payload: LibraryQuestion):
             if not answer:
                 raise RuntimeError("Empty answer")
             keep(False)
-            yield _sse("done", {"answer": answer, "conversation_id": conversation_id})
+            yield _sse("done", {"answer": answer, "conversation_id": conversation_id, "message_id": saved})
         except Exception:
             logger.exception("Unable to stream a library answer")
             yield _sse("error", {"detail": ERROR_CHAT_UNAVAILABLE, "saved": keep(True)})
@@ -1783,10 +1864,25 @@ async def stream_library_answer(payload: LibraryQuestion):
 
 
 @app.get("/library/conversations", response_model=list[LibraryConversationOut])
-def list_conversations():
+def list_conversations(q: str | None = Query(None, max_length=200), flagged: bool = False):
+    """Most recent first; `q` searches the titles and messages, `flagged` keeps those with an answer rated wrong."""
     with SessionLocal() as db:
-        rows = db.scalars(select(LibraryConversation).order_by(desc(LibraryConversation.updated_at)).limit(CONVERSATIONS_LIMIT))
-        return [_conversation_out(conversation) for conversation in rows]
+        statement = select(LibraryConversation).order_by(desc(LibraryConversation.updated_at)).limit(CONVERSATIONS_LIMIT)
+        for word in search_words(q):
+            pattern = f"%{word}%"
+            statement = statement.where(or_(
+                func.lower(LibraryConversation.title).like(pattern),
+                exists().where(LibraryMessage.conversation_id == LibraryConversation.id, func.lower(LibraryMessage.content).like(pattern)),
+            ))
+        if flagged:
+            statement = statement.where(exists().where(
+                LibraryMessage.conversation_id == LibraryConversation.id, LibraryMessage.feedback == -1
+            ))
+        rows = list(db.scalars(statement))
+        flags = set(db.scalars(select(LibraryMessage.conversation_id).where(
+            LibraryMessage.conversation_id.in_([row.id for row in rows]), LibraryMessage.feedback == -1
+        )))
+        return [{**_conversation_out(conversation), "flagged": conversation.id in flags} for conversation in rows]
 
 
 @app.get("/library/conversations/{conversation_id}", response_model=LibraryConversationDetail)
@@ -1800,7 +1896,7 @@ def get_conversation(conversation_id: str):
                 {
                     "id": message.id, "role": message.role, "content": message.content,
                     "sources": json.loads(message.sources) if message.sources else [],
-                    "interrupted": message.interrupted, "created_at": message.created_at,
+                    "interrupted": message.interrupted, "feedback": message.feedback, "created_at": message.created_at,
                 }
                 for message in conversation.messages
             ],
@@ -2299,3 +2395,493 @@ async def import_url(payload: UrlImportIn):
             duration_seconds=0.0, size_bytes=0, source_url=url,
         )
     )
+
+
+# --- People, organisations, places, dates (n°16) -----------------------------------------------
+
+def _entity_or_404(db, entity_id: int) -> Entity:
+    entity = db.get(Entity, entity_id)
+    if entity is None:
+        raise HTTPException(404, "Fiche introuvable")
+    return entity
+
+
+def _entity_out(entity: Entity, videos: int = 0, mentions: int = 0) -> dict:
+    return {
+        "id": entity.id, "name": entity.name, "kind": entity.kind, "kind_label": entities.KIND_LABELS.get(entity.kind, entity.kind),
+        "hidden": entity.hidden, "videos": videos, "mentions": mentions,
+    }
+
+
+@app.get("/entities")
+def list_entities(
+    kind: str | None = Query(None, max_length=16), q: str | None = Query(None, max_length=120), hidden: bool = False,
+):
+    """Everyone and everything named in the library, the most widespread first."""
+    if kind and kind not in entities.KINDS:
+        raise HTTPException(422, "Type inconnu")
+    with SessionLocal() as db:
+        rows = entities.counts(db, kind=kind, query=q, include_hidden=hidden)
+        return [_entity_out(entity, videos, mentions) for entity, videos, mentions in rows if hidden or not entity.hidden]
+
+
+@app.get("/entities/progress")
+def entities_progress():
+    """How many processed videos have been read for entities (the catch-up runs in the background)."""
+    with SessionLocal() as db:
+        total = db.scalar(select(func.count()).select_from(Video).where(Video.status == "COMPLETED", Video.transcript_text.is_not(None))) or 0
+        ready = db.scalar(select(func.count()).select_from(VideoEntityState).where(VideoEntityState.status == "READY")) or 0
+        failed = db.scalar(select(func.count()).select_from(VideoEntityState).where(VideoEntityState.status == "FAILED")) or 0
+        waiting = db.scalar(select(func.count()).select_from(ProcessingJob).where(
+            ProcessingJob.kind == "ENTITIES", ProcessingJob.status.in_(ACTIVE_JOB_STATUSES)
+        )) or 0
+    return {"videos": total, "ready": min(ready, total), "failed": failed, "waiting": waiting}
+
+
+@app.get("/entities/{entity_id}")
+def get_entity(entity_id: int):
+    """Everything said about an entity: its mentions, video by video, most recent video first."""
+    with SessionLocal() as db:
+        entity = _entity_or_404(db, entity_id)
+        rows = db.execute(
+            select(EntityMention, Video.original_filename, Video.created_at, Video.duration_seconds)
+            .join(Video, Video.id == EntityMention.video_id)
+            .where(EntityMention.entity_id == entity_id)
+            .order_by(desc(Video.created_at), EntityMention.start_seconds)
+        ).all()
+        videos: dict[str, dict] = {}
+        for mention, title, created_at, duration in rows:
+            video = videos.setdefault(mention.video_id, {
+                "video_id": mention.video_id, "title": title, "created_at": created_at, "duration_seconds": duration, "mentions": [],
+            })
+            video["mentions"].append({"start_seconds": mention.start_seconds, "context": mention.context})
+        merged_into = db.get(Entity, entity.merged_into) if entity.merged_into else None
+        return {
+            **_entity_out(entity, len(videos), len(rows)),
+            "merged_into": _entity_out(merged_into) if merged_into else None,
+            # "videos" is the count (as in the list): the mentions, video by video, are the appearances.
+            "appearances": list(videos.values()),
+        }
+
+
+@app.patch("/entities/{entity_id}")
+def update_entity(entity_id: int, payload: EntityUpdateIn):
+    """Rename (the display name; the extraction still finds it by its folded name), hide or show."""
+    with SessionLocal() as db:
+        entity = _entity_or_404(db, entity_id)
+        if payload.name is not None:
+            entity.name = payload.name
+        if payload.hidden is not None:
+            entity.hidden = payload.hidden
+            if not payload.hidden:
+                entity.merged_into = None
+        db.commit()
+        return _entity_out(entity)
+
+
+@app.post("/entities/{entity_id}/merge")
+def merge_entity(entity_id: int, payload: EntityMergeIn):
+    """Two spellings of one name: this entity's mentions go to `into`, and its future ones too."""
+    if payload.into == entity_id:
+        raise HTTPException(422, "Choisissez une autre fiche")
+    with SessionLocal() as db:
+        source = _entity_or_404(db, entity_id)
+        target = _entity_or_404(db, payload.into)
+        if target.merged_into:
+            raise HTTPException(409, "Cette fiche a elle-même été fusionnée")
+        entities.merge(db, source, target)
+        db.commit()
+        return _entity_out(target)
+
+
+@app.get("/videos/{video_id}/entities")
+def video_entities(video_id: str):
+    """The entities named in a video, with their first moment (video page chips)."""
+    with SessionLocal() as db:
+        _video_or_404(db, video_id)
+        rows = db.execute(
+            select(Entity, func.count(EntityMention.id), func.min(EntityMention.start_seconds))
+            .join(EntityMention, EntityMention.entity_id == Entity.id)
+            .where(EntityMention.video_id == video_id, Entity.hidden.is_(False))
+            .group_by(Entity.id)
+            .order_by(Entity.kind, func.min(EntityMention.start_seconds))
+        ).all()
+        state = db.get(VideoEntityState, video_id)
+        return {
+            "status": state.status if state else None,
+            "entities": [{**_entity_out(entity, 1, count), "first_seconds": first} for entity, count, first in rows],
+        }
+
+
+# --- Saved searches (n°17) --------------------------------------------------------------------
+
+def _search_out(row: SavedSearch) -> dict:
+    return {"id": row.id, "name": row.name, "query": row.query, "created_at": row.created_at}
+
+
+def _commit_search(db) -> None:
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, "Une collection porte déjà ce nom") from exc
+
+
+@app.get("/library/searches")
+def list_saved_searches():
+    with SessionLocal() as db:
+        return [_search_out(row) for row in db.scalars(select(SavedSearch).order_by(func.lower(SavedSearch.name)))]
+
+
+@app.post("/library/searches")
+def save_search(payload: SavedSearchIn):
+    with SessionLocal() as db:
+        row = SavedSearch(name=payload.name, query=payload.query.lstrip("?"))
+        db.add(row)
+        _commit_search(db)
+        db.refresh(row)
+        return _search_out(row)
+
+
+@app.patch("/library/searches/{search_id}")
+def rename_saved_search(search_id: int, payload: SavedSearchIn):
+    with SessionLocal() as db:
+        row = db.get(SavedSearch, search_id)
+        if row is None:
+            raise HTTPException(404, "Collection introuvable")
+        row.name = payload.name
+        if payload.query:
+            row.query = payload.query.lstrip("?")
+        _commit_search(db)
+        return _search_out(row)
+
+
+@app.delete("/library/searches/{search_id}")
+def delete_saved_search(search_id: int):
+    with SessionLocal() as db:
+        row = db.get(SavedSearch, search_id)
+        if row is None:
+            raise HTTPException(404, "Collection introuvable")
+        db.delete(row)
+        db.commit()
+    return {"deleted": True}
+
+
+# --- Conversations: rename, export, thumbs (n°18) -----------------------------------------------
+
+def _markdown_response(markdown: str, title: str, kind: str) -> Response:
+    stem = re.sub(r"[^\w\- ]+", "_", title)[:80].strip() or kind
+    ascii_name = stem.encode("ascii", "ignore").decode() or kind
+    disposition = f'attachment; filename="{ascii_name} - {kind}.md"; filename*=UTF-8\'\'{quote(f"{stem} - {kind}.md")}'
+    return Response(markdown, media_type="text/markdown; charset=utf-8", headers={"Content-Disposition": disposition})
+
+
+def _answer_markdown(content: str, interrupted: bool, feedback: int | None) -> list[str]:
+    lines = [content.strip()]
+    if interrupted:
+        lines.append("\n*Réponse interrompue : seul le début a été écrit.*")
+    if feedback == -1:
+        lines.append("\n*Réponse signalée comme incorrecte.*")
+    return lines
+
+
+@app.patch("/library/conversations/{conversation_id}")
+def rename_conversation(conversation_id: str, payload: ConversationRenameIn):
+    with SessionLocal() as db:
+        conversation = _conversation_or_404(db, conversation_id)
+        conversation.title = payload.title
+        db.commit()
+        return _conversation_out(conversation)
+
+
+@app.get("/library/conversations/{conversation_id}/export")
+def export_conversation(conversation_id: str):
+    """The conversation as Markdown: questions, answers, and the passages each answer cites."""
+    with SessionLocal() as db:
+        conversation = _conversation_or_404(db, conversation_id)
+        count = len(json.loads(conversation.video_ids))
+        lines = [
+            f"# {conversation.title}", "",
+            f"Conversation Sténo · {conversation.scope or 'toute la bibliothèque'} · {count} vidéo{'s' if count > 1 else ''} · "
+            f"{_as_aware(conversation.created_at):%d/%m/%Y}",
+        ]
+        for message in conversation.messages:
+            if message.role == "user":
+                lines += ["", "## Question", "", message.content.strip()]
+                continue
+            lines += ["", "### Réponse", "", *_answer_markdown(message.content, message.interrupted, message.feedback)]
+            sources = json.loads(message.sources) if message.sources else []
+            if sources:
+                lines += ["", "Sources :", ""]
+                lines += [f"{source['n']}. {source.get('title') or 'Vidéo'} — {timestamp(source['start_seconds'])}" for source in sources]
+        return _markdown_response("\n".join(lines) + "\n", conversation.title, "conversation")
+
+
+@app.put("/library/messages/{message_id}/feedback")
+def rate_library_answer(message_id: str, payload: FeedbackIn):
+    with SessionLocal() as db:
+        message = db.get(LibraryMessage, message_id)
+        if message is None or message.role != "assistant":
+            raise HTTPException(404, "Réponse introuvable")
+        message.feedback = payload.value
+        db.commit()
+    return {"feedback": payload.value}
+
+
+@app.put("/videos/{video_id}/chat/messages/{message_id}/feedback")
+def rate_video_answer(video_id: str, message_id: str, payload: FeedbackIn):
+    with SessionLocal() as db:
+        message = db.get(VideoChatMessage, message_id)
+        if message is None or message.video_id != video_id or message.role != "assistant":
+            raise HTTPException(404, "Réponse introuvable")
+        message.feedback = payload.value
+        db.commit()
+    return {"feedback": payload.value}
+
+
+@app.get("/videos/{video_id}/chat/export")
+def export_video_chat(video_id: str):
+    with SessionLocal() as db:
+        video = _video_or_404(db, video_id)
+        lines = [f"# Questions sur « {video.original_filename} »", ""]
+        for message in video.chat_messages:
+            if message.role == "user":
+                lines += ["## Question", "", message.content.strip(), ""]
+            else:
+                lines += ["### Réponse", "", *_answer_markdown(message.content, message.interrupted, message.feedback), ""]
+        return _markdown_response("\n".join(lines), video.original_filename, "questions")
+
+
+# --- Models (n°20) ------------------------------------------------------------------------------
+
+OLLAMA_TIMEOUT_SECONDS = 5.0
+BENCHMARK_PROMPT = (
+    "Résume en trois phrases, en français, ce passage de réunion : « Nous avons revu le budget du trimestre. "
+    "Le poste marketing dépasse de 12 % ; Claire propose de décaler la campagne de juin à septembre. "
+    "Karim valide, à condition que le lancement du produit reste au 15 octobre. Prochaine réunion lundi. »"
+)
+WHISPER_SAMPLE_SECONDS = 60
+
+
+def _ollama(method: str, path: str, **kwargs):
+    with httpx.Client(timeout=kwargs.pop("timeout", OLLAMA_TIMEOUT_SECONDS)) as client:
+        response = client.request(method, f"{settings.ollama_url.rstrip('/')}{path}", **kwargs)
+        response.raise_for_status()
+        return response.json() if response.content else {}
+
+
+def _installed_models() -> list[dict]:
+    rows = _ollama("GET", "/api/tags").get("models", [])
+    return [
+        {
+            "name": row.get("name") or row.get("model"),
+            "size_bytes": row.get("size"),
+            "parameter_size": (row.get("details") or {}).get("parameter_size"),
+            "quantization": (row.get("details") or {}).get("quantization_level"),
+            "family": (row.get("details") or {}).get("family"),
+            "modified_at": row.get("modified_at"),
+            "embedding": (row.get("name") or "").split(":")[0] == settings.embedding_model.split(":")[0]
+            or (row.get("details") or {}).get("family") in ("bert", "nomic-bert"),
+        }
+        for row in rows
+    ]
+
+
+def _redis_json(key: str) -> dict | None:
+    try:
+        raw = Redis.from_url(settings.redis_url, socket_connect_timeout=1, socket_timeout=1).get(key)
+        return json.loads(raw) if raw else None
+    except Exception:
+        return None
+
+
+def _whisper_cached(name: str) -> bool:
+    """Whether the worker already downloaded this Whisper model (shared cache volume, read-only here)."""
+    hub = Path.home() / ".cache" / "huggingface" / "hub"
+    try:
+        from faster_whisper.utils import _MODELS
+
+        repository = _MODELS.get(name, "")
+    except Exception:
+        repository = ""
+    if repository:
+        return (hub / f"models--{repository.replace('/', '--')}").is_dir()
+    return any(hub.glob(f"models--*faster-whisper-{name}"))
+
+
+def _same_model(a: str, b: str) -> bool:
+    tag = lambda name: name if ":" in name else f"{name}:latest"  # noqa: E731
+    return tag(a) == tag(b)
+
+
+@app.get("/models")
+def models_overview():
+    """Models in use, installed, suggested; GPU memory when a GPU service reports it."""
+    try:
+        installed, ollama_error = _installed_models(), None
+        loaded = [
+            {"name": row.get("name"), "size_bytes": row.get("size"), "vram_bytes": row.get("size_vram"), "expires_at": row.get("expires_at")}
+            for row in _ollama("GET", "/api/ps").get("models", [])
+        ]
+    except Exception:
+        logger.warning("Ollama unavailable for the models page", exc_info=True)
+        installed, loaded, ollama_error = [], [], "Ollama ne répond pas"
+    names = [row["name"] for row in installed]
+    gpu = _redis_json(GPU_KEY)
+    return {
+        "llm": {"current": ai_models.llm_model(), "default": settings.llm_model, "chosen": ai_models.chosen().llm_model is not None},
+        "whisper": {
+            "current": ai_models.whisper_model(), "default": settings.whisper_model,
+            "chosen": ai_models.chosen().whisper_model is not None, "live": settings.live_whisper_model,
+            "device": (gpu or {}).get("whisper_device") or settings.whisper_device,
+            "choices": [{**choice, "cached": _whisper_cached(choice["name"])} for choice in ai_models.WHISPER_CHOICES],
+        },
+        "embedding_model": settings.embedding_model,
+        "installed": installed,
+        "suggestions": [
+            {**suggestion, "installed": any(_same_model(suggestion["name"], name) for name in names)}
+            for suggestion in ai_models.LLM_SUGGESTIONS
+        ],
+        "loaded": loaded,
+        "gpu": gpu,
+        "ollama_error": ollama_error,
+    }
+
+
+@app.put("/settings/models")
+def choose_models(payload: ModelSettings):
+    """The LLM must be installed and not an embedding model; the Whisper model one of the known sizes."""
+    llm_model = (payload.llm_model or "").strip() or None
+    whisper_model = (payload.whisper_model or "").strip() or None
+    if whisper_model and whisper_model not in ai_models.WHISPER_NAMES:
+        raise HTTPException(422, "Modèle de transcription inconnu")
+    if llm_model:
+        try:
+            installed = _installed_models()
+        except Exception as exc:
+            raise HTTPException(503, "Ollama ne répond pas : impossible de vérifier le modèle") from exc
+        match = next((row for row in installed if _same_model(row["name"], llm_model)), None)
+        if match is None:
+            raise HTTPException(422, "Ce modèle n'est pas installé : téléchargez-le d'abord")
+        if match["embedding"]:
+            raise HTTPException(422, "C'est un modèle d'embeddings (recherche), pas un modèle de langage")
+    value = ModelSettings(llm_model=llm_model, whisper_model=whisper_model)
+    with SessionLocal() as db:
+        app_settings.save(db, app_settings.MODELS, value)
+        db.commit()
+    ai_models.forget()
+    return {"llm_model": ai_models.llm_model(), "whisper_model": ai_models.whisper_model()}
+
+
+@app.post("/models/llm/pull")
+async def pull_model(payload: ModelPullIn):
+    """Download a model into Ollama, as Server-Sent Events: `progress` {status, completed, total}, then `done` or `error`."""
+
+    async def events():
+        try:
+            timeout = httpx.Timeout(None, connect=10)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream("POST", f"{settings.ollama_url.rstrip('/')}/api/pull", json={"model": payload.name, "stream": True}) as response:
+                    if response.status_code >= 400:
+                        await response.aread()
+                        detail = (response.json() or {}).get("error") if response.content else None
+                        yield _sse("error", {"detail": f"Téléchargement refusé : {detail or response.status_code}"})
+                        return
+                    async for line in response.aiter_lines():
+                        if not line.strip():
+                            continue
+                        chunk = json.loads(line)
+                        if chunk.get("error"):
+                            yield _sse("error", {"detail": f"Téléchargement échoué : {chunk['error']}"})
+                            return
+                        yield _sse("progress", {"status": chunk.get("status"), "completed": chunk.get("completed"), "total": chunk.get("total")})
+                        if chunk.get("status") == "success":
+                            yield _sse("done", {"name": payload.name})
+                            return
+        except httpx.HTTPError:
+            logger.warning("Model pull of %s failed", payload.name, exc_info=True)
+            yield _sse("error", {"detail": "Ollama ne répond pas"})
+
+    return StreamingResponse(events(), media_type="text/event-stream", headers=SSE_HEADERS)
+
+
+@app.delete("/models/llm/{name:path}")
+def delete_model(name: str):
+    if _same_model(name, ai_models.llm_model()) or _same_model(name, settings.llm_model):
+        raise HTTPException(409, "Ce modèle est utilisé : choisissez-en un autre avant de le supprimer")
+    if _same_model(name, settings.embedding_model):
+        raise HTTPException(409, "Ce modèle sert à la recherche par le sens : il ne peut pas être supprimé")
+    try:
+        _ollama("DELETE", "/api/delete", json={"model": name})
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(404, "Modèle introuvable") from exc
+    except Exception as exc:
+        raise HTTPException(503, "Ollama ne répond pas") from exc
+    return {"deleted": True}
+
+
+def _llm_benchmark(name: str) -> dict:
+    body = _ollama("POST", "/api/generate", timeout=settings.llm_timeout_seconds, json={
+        "model": name, "prompt": BENCHMARK_PROMPT, "stream": False, "think": False,
+        "options": {"temperature": 0.1, "num_predict": 200, "num_ctx": settings.llm_num_ctx},
+    })
+    seconds = lambda value: (value or 0) / 1e9  # noqa: E731  (Ollama durations are in nanoseconds)
+    generation = seconds(body.get("eval_duration"))
+    reading = seconds(body.get("prompt_eval_duration"))
+    return {
+        "model": name,
+        "load_seconds": round(seconds(body.get("load_duration")), 2),
+        "tokens_per_second": round(body.get("eval_count", 0) / generation, 1) if generation else None,
+        "prompt_tokens_per_second": round(body.get("prompt_eval_count", 0) / reading, 1) if reading else None,
+        "total_seconds": round(seconds(body.get("total_duration")), 2),
+        "answer": (body.get("response") or "").strip()[:600],
+    }
+
+
+@app.post("/models/llm/benchmark")
+async def benchmark_llm(payload: BenchmarkIn):
+    """Load the model and write a short summary: load time and speed (tokens per second)."""
+    try:
+        return await run_in_threadpool(_llm_benchmark, payload.name)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(422, "Ce modèle n'est pas installé") from exc
+    except Exception as exc:
+        logger.warning("LLM benchmark of %s failed", payload.name, exc_info=True)
+        raise HTTPException(503, "Test impossible : Ollama ne répond pas") from exc
+
+
+def _whisper_sample() -> tuple[str, str] | None:
+    """The most recent media that can be listened to (path, title): the test transcribes its first minute."""
+    with SessionLocal() as db:
+        for video in db.scalars(select(Video).where(Video.status == "COMPLETED").order_by(desc(Video.created_at)).limit(50)):
+            for path in (_audio_path(video.id), Path(video.path)):
+                if path.is_file():
+                    return str(path), video.original_filename
+    return None
+
+
+@app.post("/models/whisper/benchmark")
+def benchmark_whisper(payload: BenchmarkIn):
+    """Ask the live service (it has the GPU) to time a Whisper model on the first minute of a video."""
+    if payload.name not in ai_models.WHISPER_NAMES:
+        raise HTTPException(422, "Modèle de transcription inconnu")
+    sample = _whisper_sample()
+    if sample is None:
+        raise HTTPException(409, "Importez d'abord une vidéo : le test transcrit sa première minute")
+    request_id = str(uuid.uuid4())
+    request = {"id": request_id, "model": payload.name, "path": sample[0], "title": sample[1], "seconds": WHISPER_SAMPLE_SECONDS}
+    try:
+        redis = Redis.from_url(settings.redis_url, socket_connect_timeout=2, socket_timeout=2)
+        redis.set(f"{BENCHMARK_KEY}{request_id}", json.dumps({"status": "pending", "model": payload.name}), ex=3600)
+        redis.rpush(BENCHMARK_QUEUE, json.dumps(request))
+    except Exception as exc:
+        raise HTTPException(503, "Service indisponible (Redis)") from exc
+    return {"id": request_id, "status": "pending", "sample": sample[1]}
+
+
+@app.get("/models/whisper/benchmark/{request_id}")
+def whisper_benchmark_result(request_id: str):
+    result = _redis_json(f"{BENCHMARK_KEY}{request_id}")
+    if result is None:
+        raise HTTPException(404, "Test introuvable")
+    return result

@@ -13,6 +13,8 @@ segments delayed the preview by 25 s). The lines appear in `live_segments`.
 This transcript is a preview. Once the recording stops, the usual pipeline
 transcribes the whole file with the main model, then summarizes it.
 """
+import gc
+import json
 import logging
 import signal
 import subprocess
@@ -29,7 +31,7 @@ from .config import settings
 from .db import SessionLocal, engine
 from .models import GlossaryTerm, LiveSegment, Recording
 from .schema import assert_schema_current
-from .status import LIVE_HEARTBEAT_KEY
+from .status import BENCHMARK_KEY, BENCHMARK_QUEUE, GPU_KEY, LIVE_HEARTBEAT_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -298,6 +300,85 @@ class LiveService:
                 db.commit()
 
 
+# --- Models page (n°20): GPU memory and Whisper speed tests ------------------------------------
+
+GPU_EVERY_SECONDS = 10
+
+
+def gpu_state() -> dict:
+    """What nvidia-smi says about the card, and the device Whisper runs on here."""
+    state: dict = {"whisper_device": settings.whisper_device, "whisper_compute_type": settings.whisper_compute_type, "at": time.time()}
+    try:
+        output = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total,memory.used,utilization.gpu", "--format=csv,noheader,nounits"],
+            check=True, capture_output=True, text=True, timeout=5,
+        ).stdout.strip().splitlines()
+    except (OSError, subprocess.SubprocessError):
+        return state
+    if output:
+        name, total, used, utilization = [part.strip() for part in output[0].split(",")][:4]
+        state.update(name=name, memory_total_mb=int(float(total)), memory_used_mb=int(float(used)), utilization=int(float(utilization)))
+    return state
+
+
+def decode_sample(path: str, seconds: float) -> np.ndarray:
+    raw = subprocess.run(
+        ["ffmpeg", "-loglevel", "error", "-nostdin", "-t", str(seconds), "-i", path, "-vn", "-ac", "1", "-ar", str(RATE), "-f", "s16le", "pipe:1"],
+        check=True, capture_output=True, timeout=120,
+    ).stdout
+    return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+
+
+def run_benchmark(request: dict, model_factory=None) -> dict:
+    """Time one Whisper model on the first minute of a video: load, then transcription speed."""
+    audio = decode_sample(request["path"], float(request.get("seconds") or 60))
+    if not len(audio):
+        raise RuntimeError("Aucun son dans le fichier choisi")
+    started = time.monotonic()
+    if model_factory is None:
+        from faster_whisper import WhisperModel
+
+        model = WhisperModel(request["model"], device=settings.whisper_device, compute_type=settings.whisper_compute_type)
+    else:
+        model = model_factory(request["model"])
+    loaded = time.monotonic()
+    # Warm-up, not timed: the first pass on a GPU initialises CUDA (measured 17 s for a minute
+    # that then took 1 s), which a real 1-hour job pays only once.
+    list(model.transcribe(audio[: RATE * 10], beam_size=settings.whisper_beam_size, vad_filter=True)[0])
+    started_transcription = time.monotonic()
+    segments, info = model.transcribe(audio, beam_size=settings.whisper_beam_size, vad_filter=True)
+    text = " ".join(segment.text.strip() for segment in segments)
+    done = time.monotonic()
+    audio_seconds = len(audio) / RATE
+    transcribe_seconds = max(done - started_transcription, 1e-6)
+    del model
+    return {
+        "status": "done", "model": request["model"], "device": settings.whisper_device, "compute_type": settings.whisper_compute_type,
+        "sample": request.get("title"), "audio_seconds": round(audio_seconds, 1), "load_seconds": round(loaded - started, 2),
+        "transcribe_seconds": round(transcribe_seconds, 2), "speed": round(audio_seconds / transcribe_seconds, 1),
+        "language": getattr(info, "language", None), "text": text[:400],
+    }
+
+
+def serve_benchmark(redis: Redis, model_factory=None) -> bool:
+    """Run the next requested speed test, if any; returns whether one ran."""
+    raw = redis.lpop(BENCHMARK_QUEUE)
+    if not raw:
+        return False
+    request = json.loads(raw)
+    key = f"{BENCHMARK_KEY}{request['id']}"
+    redis.set(key, json.dumps({"status": "running", "model": request["model"]}), ex=3600)
+    try:
+        result = run_benchmark(request, model_factory)
+    except Exception as exc:
+        logger.exception("Whisper benchmark of %s failed", request.get("model"))
+        result = {"status": "error", "model": request.get("model"), "detail": str(exc)[:300] or "Échec du test"}
+    finally:
+        gc.collect()
+    redis.set(key, json.dumps(result), ex=3600)
+    return True
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     assert_schema_current(engine)
@@ -312,11 +393,20 @@ def main() -> None:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     logger.info("Live service started (model %s, %s)", settings.live_whisper_model, settings.whisper_device)
+    next_gpu = 0.0
     while not stopping:
         try:
             redis.set(LIVE_HEARTBEAT_KEY, str(time.time()), ex=30)
+            if time.monotonic() >= next_gpu:
+                redis.set(GPU_KEY, json.dumps(gpu_state()), ex=GPU_EVERY_SECONDS * 6)
+                next_gpu = time.monotonic() + GPU_EVERY_SECONDS
         except Exception:
             logger.warning("Unable to write the live heartbeat", exc_info=True)
+        try:
+            # A speed test pauses the live transcript for its duration: it is short, and asked by the user.
+            serve_benchmark(redis)
+        except Exception:
+            logger.exception("Benchmark request failed")
         try:
             service.tick()
         except Exception:

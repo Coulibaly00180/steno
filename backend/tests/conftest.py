@@ -36,6 +36,15 @@ def offline_embeddings(monkeypatch):
     return calls
 
 
+@pytest.fixture(autouse=True)
+def no_entity_jobs(monkeypatch):
+    """Entity extraction (n°16) is queued after many actions: tests record it instead of using Redis."""
+    queued = []
+    monkeypatch.setattr(worker, "enqueue_entities_job", queued.append)
+    monkeypatch.setattr(main, "enqueue_entities_job", queued.append)
+    return queued
+
+
 @pytest.fixture
 def upload_environment(monkeypatch, tmp_path):
     """Use an isolated SQLite database and filesystem-backed upload directory."""

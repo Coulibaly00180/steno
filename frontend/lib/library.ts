@@ -11,13 +11,15 @@ const ACTIVE_REFRESH_MS = 4000;
  * The library in one call (n°17). While a job is queued or running, the list
  * refreshes itself so that positions and estimates stay current.
  */
-export function useVideoList(query: string) {
+export function useVideoList(query: string | null) {
   const [videos, setVideos] = useState<VideoSummary[] | null>(null);
   const [error, setError] = useState("");
   // Typing in the search box sends several requests: only the latest may win.
   const latest = useRef(0);
 
   const load = useCallback(async () => {
+    // null: the filters are not known yet (read from the address), nothing to load.
+    if (query === null) return;
     const request = ++latest.current;
     try {
       const rows = await api<VideoSummary[]>(`/videos${query ? `?${query}` : ""}`);

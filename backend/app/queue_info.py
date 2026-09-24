@@ -64,7 +64,7 @@ def duration_models(db: Session) -> dict[tuple[str, bool], DurationModel | None]
         .limit(HISTORY_SIZE * 8)
     ).all()
     models: dict[tuple[str, bool], DurationModel | None] = {}
-    for kind in ("FULL", "SUMMARY", "INDEX", "DIARIZE", "COMPACT"):
+    for kind in ("FULL", "SUMMARY", "INDEX", "ENTITIES", "DIARIZE", "COMPACT"):
         same_kind = [row for row in rows if row.kind == kind]
         for translated in (False, True):
             exact = [row for row in same_kind if row.translated == translated][:HISTORY_SIZE]
@@ -122,7 +122,7 @@ def queue_snapshot(db: Session, now: datetime | None = None) -> dict[str, QueueI
     position = 0
     # The worker drains the main queue before the indexing queue (worker_entry).
     queued = [row for row in rows if row[0].status == "QUEUED"]
-    queued.sort(key=lambda row: row[0].kind == "INDEX")
+    queued.sort(key=lambda row: row[0].kind in ("INDEX", "ENTITIES"))
     for job, media_seconds, target_language in queued:
         position += 1
         total = expected(job, media_seconds, target_language)

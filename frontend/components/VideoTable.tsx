@@ -110,6 +110,7 @@ export default function VideoTable({ videos, onChanged, onTagClick, empty = "Auc
               {video.snippet.start_seconds != null && <span className="mono snippet-time">{formatDuration(video.snippet.start_seconds)}</span>}
               <span className="snippet-text"><Highlighted text={video.snippet.text} ranges={video.snippet.ranges} /></span>
               {video.snippet.source === "translation" && <span className="pill">traduction</span>}
+              {video.snippet.source === "meaning" && <span className="pill" title="Passage proche du sujet cherché, sans les mots exacts">par le sens</span>}
             </Link>}
             {!!video.tags?.length && <div className="tag-list">{video.tags.map(tag => onTagClick
               ? <button type="button" className="tag-chip" key={tag} onClick={() => onTagClick(tag)} title={`Filtrer sur « ${tag} »`}>{tag}</button>

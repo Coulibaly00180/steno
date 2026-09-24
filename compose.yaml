@@ -68,6 +68,8 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - ./data:/data
+      # Read only: the models page shows which Whisper models are already downloaded.
+      - whisper_cache:/root/.cache/huggingface:ro
     depends_on:
       migrate:
         condition: service_completed_successfully

@@ -190,6 +190,7 @@ class ChatMessageOut(BaseModel):
     role: str
     content: str
     interrupted: bool = False
+    feedback: int | None = None
     created_at: datetime
 
 
@@ -210,6 +211,8 @@ class LibraryConversationOut(BaseModel):
     video_count: int
     created_at: datetime
     updated_at: datetime
+    # An answer of the conversation was rated wrong (n°18).
+    flagged: bool = False
 
 
 class LibraryMessageOut(BaseModel):
@@ -218,6 +221,7 @@ class LibraryMessageOut(BaseModel):
     content: str
     sources: list[dict] = []
     interrupted: bool = False
+    feedback: int | None = None
     created_at: datetime
 
 
@@ -357,3 +361,47 @@ class UrlImportSettings(BaseModel):
     """Imports from a link (n°12): video platforms are the user's choice, off by default."""
 
     platforms: bool = False
+
+
+class ModelSettings(BaseModel):
+    """Models chosen in the interface (n°20); None keeps the environment's (LLM_MODEL, WHISPER_MODEL)."""
+
+    llm_model: str | None = Field(default=None, max_length=120)
+    whisper_model: str | None = Field(default=None, max_length=60)
+
+
+class ModelPullIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120, pattern=r"^[a-zA-Z0-9][\w.\-/:]*$")
+
+
+class BenchmarkIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class FeedbackIn(BaseModel):
+    # 1: useful, -1: wrong, None: no opinion.
+    value: int | None = Field(default=None, ge=-1, le=1)
+
+
+class ConversationRenameIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    title: str = Field(min_length=1, max_length=120)
+
+
+class SavedSearchIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    name: str = Field(min_length=1, max_length=80)
+    query: str = Field(default="", max_length=2000)
+
+
+class EntityUpdateIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    hidden: bool | None = None
+
+
+class EntityMergeIn(BaseModel):
+    into: int

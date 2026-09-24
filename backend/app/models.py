@@ -172,6 +172,8 @@ class VideoChatMessage(Base):
     content: Mapped[str] = mapped_column(Text)
     # An answer cut short (the reader left, or the model stopped): what was written is kept.
     interrupted: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # The reader's thumb on an answer (n°18): 1 useful, -1 wrong, None not rated.
+    feedback: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -205,6 +207,7 @@ class LibraryMessage(Base):
     # Passages cited by an answer (JSON): [n] in the text opens the video at that moment.
     sources: Mapped[str | None] = mapped_column(Text, nullable=True)
     interrupted: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    feedback: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -294,6 +297,72 @@ class LiveSegment(Base):
     start_seconds: Mapped[float] = mapped_column(Float)
     end_seconds: Mapped[float] = mapped_column(Float)
     text: Mapped[str] = mapped_column(Text)
+
+
+class Entity(Base):
+    """A person, organisation, place or date named in the library (n°16).
+
+    `key` is the folded name (no accents, case, titles): two spellings of one
+    name meet there. `hidden`: dismissed by the user, still extracted but not listed.
+    """
+
+    __tablename__ = "entities"
+    __table_args__ = (UniqueConstraint("kind", "key", name="uq_entities_kind_key"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    name: Mapped[str] = mapped_column(String(120))
+    key: Mapped[str] = mapped_column(String(120))
+    hidden: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # Merged by the user: new mentions of this spelling go to that entity.
+    merged_into: Mapped[int | None] = mapped_column(
+        ForeignKey("entities.id", ondelete="SET NULL", name="fk_entities_merged_into"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class EntityMention(Base):
+    """Where an entity is named: a video, a moment, the line said there."""
+
+    __tablename__ = "entity_mentions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    entity_id: Mapped[int] = mapped_column(
+        ForeignKey("entities.id", ondelete="CASCADE", name="fk_entity_mentions_entity_id"), index=True
+    )
+    video_id: Mapped[str] = mapped_column(
+        ForeignKey("videos.id", ondelete="CASCADE", name="fk_entity_mentions_video_id"), index=True
+    )
+    start_seconds: Mapped[float] = mapped_column(Float)
+    context: Mapped[str] = mapped_column(Text)
+
+
+class VideoEntityState(Base):
+    """Extraction state of a video: READY, STALE (transcript edited since) or FAILED."""
+
+    __tablename__ = "video_entity_states"
+
+    video_id: Mapped[str] = mapped_column(
+        ForeignKey("videos.id", ondelete="CASCADE", name="fk_video_entity_states_video_id"), primary_key=True
+    )
+    status: Mapped[str] = mapped_column(String(16))
+    model: Mapped[str] = mapped_column(String(120))
+    transcript_hash: Mapped[str] = mapped_column(String(64))
+    mentions: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SavedSearch(Base):
+    """A library search kept as a collection (n°17): its filters, as a query string."""
+
+    __tablename__ = "saved_searches"
+    __table_args__ = (Index("uq_saved_searches_name_lower", func.lower(text("name")), unique=True),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(80))
+    query: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class AppSetting(Base):

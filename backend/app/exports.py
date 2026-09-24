@@ -9,6 +9,7 @@ import re
 from sqlalchemy.orm import Session
 
 from .analysis_options import SUMMARY_LENGTH_LABELS, split_stored_terms, word_budget
+from . import ai_models
 from .config import settings
 from .models import SummaryTemplate, Video
 from .speakers import speaker_labels
@@ -126,8 +127,8 @@ def write_exports(db: Session, video_id: str) -> None:
     template = db.get(SummaryTemplate, summary.template_id) if summary and summary.template_id else None
     (export_dir / "metadata.json").write_text(json.dumps({
         "video_id": video.id,
-        "model": summary.model if summary else settings.llm_model,
-        "whisper_model": settings.whisper_model,
+        "model": summary.model if summary else ai_models.llm_model(),
+        "whisper_model": ai_models.whisper_model(),
         "num_ctx": settings.llm_num_ctx,
         "target_language": video.target_language,
         "source_language": video.detected_language,

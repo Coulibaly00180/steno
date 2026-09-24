@@ -323,7 +323,10 @@ def test_library_question_cites_numbered_passages_from_several_videos(client, db
     # At most LIBRARY_PASSAGES_PER_VIDEO passages of one video, before merging.
     assert sum(1 for s in sources["sources"] if s["video_id"] == "budget") <= main.LIBRARY_PASSAGES_PER_VIDEO
     assert [s["n"] for s in sources["sources"]] == list(range(1, len(sources["sources"]) + 1))
-    assert events[-1] == ("done", {"answer": "Le budget est voté [1][2].", "conversation_id": sources["conversation_id"]})
+    done = events[-1][1]
+    assert events[-1][0] == "done" and (done["answer"], done["conversation_id"]) == ("Le budget est voté [1][2].", sources["conversation_id"])
+    # The saved answer's id, for the thumbs (n°18).
+    assert done["message_id"]
     assert "[1] Vidéo « " in prompts[0] and "(Aucun échange précédent.)" in prompts[0]
     # The follow-up finds the first exchange in the saved conversation.
     client.post("/library/chat/stream", json={"question": "Et les vélos ?", "conversation_id": sources["conversation_id"]})

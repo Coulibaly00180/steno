@@ -6,7 +6,7 @@ from rq import Queue, Worker
 from .config import INDEX_QUEUE_NAME, QUEUE_NAME, settings
 from .db import engine
 from .schema import assert_schema_current
-from .worker import enqueue_missing_indexes, mark_interrupted_job, recover_interrupted_jobs
+from .worker import enqueue_missing_entities, enqueue_missing_indexes, mark_interrupted_job, recover_interrupted_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,13 @@ def main():
             logger.info("Queued %d video(s) for semantic indexing", queued)
     except Exception:
         logger.warning("Unable to queue the indexing catch-up", exc_info=True)
+    try:
+        # People, organisations, places and dates (n°16) of the videos processed before, or edited.
+        queued = enqueue_missing_entities()
+        if queued:
+            logger.info("Queued %d video(s) for entity extraction", queued)
+    except Exception:
+        logger.warning("Unable to queue the entity catch-up", exc_info=True)
     redis = Redis.from_url(settings.redis_url)
     worker = Worker(
         # Listed in priority order: RQ always takes the first non-empty queue.
