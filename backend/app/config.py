@@ -60,6 +60,18 @@ class Settings(BaseSettings):
     max_import_bytes: int = Field(default=50 * 1024 ** 3, gt=0)
     pg_dump_timeout_seconds: int = Field(default=3600, ge=10)
 
+    # Live transcript of a browser recording (n°11): a preview only, the full
+    # transcription runs at the end. A small model keeps up in real time on a
+    # CPU and leaves the GPU memory to the worker and Ollama.
+    live_whisper_model: str = "small"
+    live_poll_seconds: float = Field(default=1.0, gt=0, le=30)
+    # Imports from a link (n°12).
+    max_download_bytes: int = Field(default=4 * 1024 ** 3, gt=0)
+    download_timeout_seconds: int = Field(default=60, ge=5, le=600)
+    # Links to the local network (a NAS…) are refused unless allowed: otherwise
+    # any page could make Sténo query the Docker services.
+    url_import_allow_private: bool = False
+
     @property
     def uploads_dir(self) -> Path:
         return self.data_dir / "uploads"

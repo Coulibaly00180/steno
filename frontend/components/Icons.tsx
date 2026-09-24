@@ -1,6 +1,6 @@
 import type { ReactNode, SVGProps } from "react";
 
-type IconName = "home" | "library" | "template" | "system" | "settings" | "shield" | "sun" | "moon" | "upload" | "video" | "audio" | "close" | "chevron" | "arrow" | "more" | "download" | "trash" | "retry" | "chat" | "edit" | "sparkle" | "search" | "tag";
+type IconName = "home" | "library" | "template" | "system" | "settings" | "shield" | "sun" | "moon" | "upload" | "video" | "audio" | "close" | "chevron" | "arrow" | "more" | "download" | "trash" | "retry" | "chat" | "edit" | "sparkle" | "search" | "tag" | "mic" | "link" | "pause" | "stop";
 
 export function Icon({ name, size = 17, ...props }: SVGProps<SVGSVGElement> & { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
@@ -25,6 +25,10 @@ export function Icon({ name, size = 17, ...props }: SVGProps<SVGSVGElement> & { 
     edit: <><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17Z"/><path d="m14.5 7.5 3 3"/></>,
     search: <><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></>,
     tag: <><path d="M3.5 12.3V4.5a1 1 0 0 1 1-1h7.8l8.2 8.2a1.4 1.4 0 0 1 0 2l-6.3 6.3a1.4 1.4 0 0 1-2 0Z"/><circle cx="8" cy="8" r="1.3"/></>,
+    mic: <><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></>,
+    link: <><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></>,
+    pause: <path d="M8.5 5v14M15.5 5v14"/>,
+    stop: <rect x="6" y="6" width="12" height="12" rx="2"/>,
     sparkle: <path d="M12 3.5 13.8 9 19.5 10.8 13.8 12.6 12 18.5 10.2 12.6 4.5 10.8 10.2 9Z"/>,
     chat: <><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-5 4v-4.5a2.5 2.5 0 0 1-1-2Z"/><path d="M8 8h8M8 12h5"/></>,
   };

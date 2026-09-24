@@ -3,16 +3,17 @@ import json
 import mimetypes
 import re
 import shutil
+import subprocess
 import unicodedata
 import uuid
 import logging
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -39,7 +40,7 @@ from .analysis_options import (
     split_stored_terms,
     whisper_terms,
 )
-from . import app_settings, backups, portable, watch_folder
+from . import app_settings, backups, portable, url_import, watch_folder
 from .config import QUEUE_NAME, settings
 from .learning import corrections_between, record_corrections, replacement_pair
 from .learning import dismiss as dismiss_suggestion
@@ -70,7 +71,9 @@ from .models import (
     GlossaryTerm,
     LibraryConversation,
     LibraryMessage,
+    LiveSegment,
     ProcessingJob,
+    Recording,
     Summary,
     SummaryTemplate,
     Tag,
@@ -91,6 +94,11 @@ from .schemas import (
     BackupSettings,
     GlossarySuggestionOut,
     GlossaryTermIn,
+    ImportOptionsIn,
+    RecordingCreate,
+    RecordingOut,
+    UrlImportIn,
+    UrlPreviewIn,
     StorageActionIn,
     WatchFolderSettings,
     ChatMessageOut,
@@ -544,17 +552,20 @@ def create_import(destination: Path, original_filename: str, options: ImportSett
 
     if duration > settings.max_video_hours * 3600:
         raise HTTPException(400, f"Durée maximale: {settings.max_video_hours:g} heures")
+    return queue_import(
+        video_id, options, filename=destination.name, original_filename=original_filename, path=str(destination),
+        duration_seconds=duration, size_bytes=destination.stat().st_size,
+    )
 
+
+def queue_import(video_id: str, options: ImportSettings, **video_fields) -> ProcessingJob:
+    """Create the video (`video_fields`: file, duration…) and its FULL job, and queue it."""
     job_id = str(uuid.uuid4())
     try:
         with SessionLocal() as db:
             video = Video(
                 id=video_id,
-                filename=destination.name,
-                original_filename=original_filename,
-                path=str(destination),
-                duration_seconds=duration,
-                size_bytes=destination.stat().st_size,
+                **video_fields,
                 status="QUEUED",
                 target_language=options.target_language,
                 detected_language=options.source_language,
@@ -728,6 +739,7 @@ def get_video(video_id: str):
             "num_speakers": video.num_speakers,
             "diarization_error": video.diarization_error,
             "source_policy": video.source_policy,
+            "source_url": video.source_url,
             "speakers": speakers_payload(video),
             "segments": video.segments,
             "summaries": [
@@ -794,7 +806,8 @@ def retry_video(video_id: str):
             raise HTTPException(404, "Vidéo introuvable")
         if video.status not in ("FAILED", "CANCELLED"):
             raise HTTPException(409, "Seule une vidéo en erreur ou annulée peut être relancée")
-        if not Path(video.path).is_file():
+        # A link import whose download failed fetches its file again.
+        if not Path(video.path).is_file() and not video.source_url:
             raise HTTPException(409, "Fichier source introuvable")
 
         previous_job = db.scalar(
@@ -1000,6 +1013,12 @@ def ask_video_question(video_id: str, payload: ChatQuestion):
     return _save_chat_exchange(video_id, payload.question, answer)
 
 
+# Server-Sent Events must reach the page piece by piece. "no-transform": the
+# Next.js server (the /api proxy) gzips responses otherwise, and gzip held the
+# whole stream until its end. X-Accel-Buffering: same for a reverse proxy.
+SSE_HEADERS = {"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"}
+
+
 def _sse(event: str, data) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
@@ -1045,9 +1064,8 @@ async def stream_video_answer(video_id: str, payload: ChatQuestion):
             # The reader left (the task is cancelled): keep what was written.
             keep(True)
 
-    # X-Accel-Buffering: a reverse proxy must pass each piece on at once.
     return StreamingResponse(
-        events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+        events(), media_type="text/event-stream", headers=SSE_HEADERS
     )
 
 
@@ -1080,7 +1098,7 @@ async def job_events(job_id: str):
             if payload["status"] in TERMINAL_JOB_STATUSES:
                 return
             await asyncio.sleep(1)
-    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+    return StreamingResponse(stream(), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
 @app.get("/templates", response_model=list[TemplateOut])
@@ -1759,7 +1777,7 @@ async def stream_library_answer(payload: LibraryQuestion):
                 _discard_empty_conversation(conversation_id)
 
     return StreamingResponse(
-        events(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+        events(), media_type="text/event-stream", headers=SSE_HEADERS
     )
 
 
@@ -2050,3 +2068,218 @@ async def import_library(file: UploadFile = File(...)):
             raise HTTPException(422, str(exc)) from exc
     finally:
         temporary.unlink(missing_ok=True)
+
+
+# --- Recordings from the browser (n°10) and live transcript (n°11) -------------------------
+
+# What MediaRecorder produces, and the container the recording is kept in:
+# Opus (Chrome, Firefox) in Ogg, AAC (Safari) in MP4, both played by the audio player.
+RECORDING_CONTAINERS = {"audio/webm": ".webm", "video/webm": ".webm", "audio/ogg": ".ogg", "audio/mp4": ".mp4", "video/mp4": ".mp4"}
+RECORDING_CHUNK_MAX_BYTES = 16 * 1024 * 1024
+RECORDING_EVENTS_POLL_SECONDS = 1.0
+
+
+def _import_options(payload: ImportOptionsIn, *, tag: str | None = None) -> ImportSettings:
+    return import_settings(
+        target_language=payload.target_language, template_id=payload.template_id, custom_prompt=payload.custom_prompt,
+        summary_length=payload.summary_length, source_language=payload.source_language, vocabulary=payload.vocabulary,
+        use_global_glossary=payload.use_global_glossary, diarize=payload.diarize, num_speakers=payload.num_speakers,
+        source_policy=payload.source_policy, tag=tag,
+    )
+
+
+def _recording_or_404(db, recording_id: str, *, lock: bool = False) -> Recording:
+    query = select(Recording).where(Recording.id == recording_id)
+    recording = db.scalar(query.with_for_update() if lock else query)
+    if recording is None:
+        raise HTTPException(404, "Enregistrement introuvable")
+    return recording
+
+
+def _filename_for(title: str, suffix: str) -> str:
+    stem = re.sub(r'[\\/:*?"<>|]+', " ", title).strip()[:200] or "Enregistrement"
+    return f"{stem}{suffix}"
+
+
+@app.post("/recordings", response_model=RecordingOut)
+def start_recording(payload: RecordingCreate):
+    container = RECORDING_CONTAINERS.get(payload.mime_type.split(";")[0].strip().lower())
+    if container is None:
+        raise HTTPException(422, "Format d'enregistrement non pris en charge par Sténo")
+    language = (payload.language or "").lower() or None
+    if language and language not in SOURCE_LANGUAGES:
+        raise HTTPException(422, "Langue source non prise en charge")
+    recording_id = str(uuid.uuid4())
+    settings.uploads_dir.mkdir(parents=True, exist_ok=True)
+    path = settings.uploads_dir / f".rec-{recording_id}{container}"
+    path.touch()
+    now = utcnow()
+    recording = Recording(
+        id=recording_id, title=payload.title, status="RECORDING", live=payload.live, mime_type=payload.mime_type,
+        path=str(path), size_bytes=0, chunks=0, language=language, created_at=now, updated_at=now,
+    )
+    with SessionLocal() as db:
+        db.add(recording)
+        db.commit()
+        db.refresh(recording)
+        return recording
+
+
+@app.get("/recordings", response_model=list[RecordingOut])
+def unfinished_recordings():
+    """Recordings still open: a tab closed by mistake leaves one, to finish or discard."""
+    with SessionLocal() as db:
+        return list(db.scalars(select(Recording).where(Recording.status == "RECORDING").order_by(desc(Recording.updated_at))))
+
+
+@app.get("/recordings/{recording_id}", response_model=RecordingOut)
+def get_recording(recording_id: str):
+    with SessionLocal() as db:
+        return _recording_or_404(db, recording_id)
+
+
+@app.put("/recordings/{recording_id}/chunks/{index}", response_model=RecordingOut)
+async def append_recording_chunk(recording_id: str, index: int, request: Request):
+    """Chunks arrive in order; a chunk sent twice (a retry) is acknowledged without being written again."""
+    data = await request.body()
+    if len(data) > RECORDING_CHUNK_MAX_BYTES:
+        raise HTTPException(413, "Morceau d'enregistrement trop volumineux")
+
+    def append():
+        with SessionLocal() as db:
+            recording = _recording_or_404(db, recording_id, lock=True)
+            if recording.status != "RECORDING":
+                raise HTTPException(409, "Cet enregistrement est terminé")
+            if index < recording.chunks:
+                return recording
+            if index > recording.chunks:
+                raise HTTPException(409, f"Morceau {index} reçu avant le morceau {recording.chunks}")
+            if recording.size_bytes + len(data) > settings.max_upload_bytes:
+                raise HTTPException(413, "Enregistrement trop volumineux : arrêtez-le pour l'analyser")
+            with open(recording.path, "ab") as out:
+                out.write(data)
+            recording.chunks += 1
+            recording.size_bytes += len(data)
+            recording.updated_at = utcnow()
+            db.commit()
+            db.refresh(recording)
+            return recording
+
+    return await run_in_threadpool(append)
+
+
+def _remux_recording(source: Path, destination: Path) -> None:
+    """MediaRecorder streams carry no duration: rewrite them into a proper file, without re-encoding if possible."""
+    container = ["-movflags", "+faststart", "-f", "mp4"] if destination.suffix == ".m4a" else ["-f", "ogg"]
+    base = ["ffmpeg", "-y", "-nostdin", "-loglevel", "error", "-i", str(source), "-vn"]
+    try:
+        subprocess.run([*base, "-c:a", "copy", *container, str(destination)], check=True, capture_output=True,
+                       timeout=settings.ffmpeg_timeout_seconds)
+    except subprocess.CalledProcessError:
+        # A codec the container does not take as is: encode it.
+        codec = ["-c:a", "aac", "-b:a", "96k"] if destination.suffix == ".m4a" else ["-c:a", "libopus", "-b:a", "48k"]
+        subprocess.run([*base, *codec, *container, str(destination)], check=True, capture_output=True,
+                       timeout=settings.ffmpeg_timeout_seconds)
+
+
+@app.post("/recordings/{recording_id}/finish", response_model=JobOut)
+async def finish_recording(recording_id: str, payload: ImportOptionsIn):
+    """Stop the recording and analyse it like any imported file."""
+    options = _import_options(payload)
+    with SessionLocal() as db:
+        recording = _recording_or_404(db, recording_id)
+        if recording.status != "RECORDING":
+            raise HTTPException(409, "Cet enregistrement est déjà terminé")
+        if not recording.size_bytes:
+            raise HTTPException(409, "L'enregistrement est vide")
+        source, title = Path(recording.path), recording.title
+    video_id = str(uuid.uuid4())
+    suffix = ".m4a" if source.suffix == ".mp4" else ".ogg"
+    destination = settings.uploads_dir / f"{video_id}{suffix}"
+    try:
+        await run_in_threadpool(_remux_recording, source, destination)
+    except Exception as exc:
+        destination.unlink(missing_ok=True)
+        logger.warning("Unable to remux recording %s", recording_id, exc_info=True)
+        raise HTTPException(422, "L'enregistrement est illisible ; il est conservé, vous pouvez réessayer ou l'abandonner") from exc
+    try:
+        job = await run_in_threadpool(create_import, destination, _filename_for(title, suffix), options, video_id)
+    except BaseException:
+        destination.unlink(missing_ok=True)
+        raise
+    with SessionLocal() as db:
+        recording = _recording_or_404(db, recording_id)
+        recording.status, recording.video_id, recording.updated_at = "FINISHED", video_id, utcnow()
+        db.commit()
+    source.unlink(missing_ok=True)
+    return job
+
+
+@app.delete("/recordings/{recording_id}")
+def discard_recording(recording_id: str):
+    with SessionLocal() as db:
+        recording = _recording_or_404(db, recording_id, lock=True)
+        if recording.status == "FINISHED":
+            raise HTTPException(409, "Cet enregistrement a déjà été analysé : supprimez plutôt la vidéo")
+        Path(recording.path).unlink(missing_ok=True)
+        recording.status, recording.updated_at = "CANCELLED", utcnow()
+        db.execute(delete(LiveSegment).where(LiveSegment.recording_id == recording_id))
+        db.commit()
+    return {"deleted": True}
+
+
+@app.get("/recordings/{recording_id}/live")
+async def live_transcript(recording_id: str):
+    """The live transcript as Server-Sent Events: `segment` {start, end, text}, then `end` {status}."""
+    with SessionLocal() as db:
+        _recording_or_404(db, recording_id)
+
+    async def stream():
+        last_id = 0
+        while True:
+            with SessionLocal() as db:
+                recording = db.get(Recording, recording_id)
+                rows = list(db.scalars(
+                    select(LiveSegment).where(LiveSegment.recording_id == recording_id, LiveSegment.id > last_id).order_by(LiveSegment.id)
+                ))
+                state = {"status": recording.status, "live": recording.live, "error": recording.live_error} if recording else None
+            for row in rows:
+                last_id = row.id
+                yield _sse("segment", {"start": row.start_seconds, "end": row.end_seconds, "text": row.text})
+            if state is None or state["status"] != "RECORDING":
+                yield _sse("end", state or {"status": "CANCELLED"})
+                return
+            if state["error"]:
+                yield _sse("state", state)
+            await asyncio.sleep(RECORDING_EVENTS_POLL_SECONDS)
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers=SSE_HEADERS)
+
+
+# --- Import from a link (n°12) -------------------------------------------------------------
+
+@app.post("/imports/url/preview")
+async def preview_url(payload: UrlPreviewIn):
+    """What the link points to: a file (name, size) or a podcast feed (its episodes)."""
+    try:
+        return await run_in_threadpool(url_import.probe, payload.url)
+    except url_import.UrlImportError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.post("/imports/url", response_model=JobOut)
+async def import_url(payload: UrlImportIn):
+    """Queue the analysis of a linked file: the worker downloads it first."""
+    try:
+        url = await run_in_threadpool(url_import.check_url, payload.url)
+    except url_import.UrlImportError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    options = _import_options(payload)
+    video_id = str(uuid.uuid4())
+    name = (payload.title or "").strip() or unquote(Path(urlsplit(url).path).name) or "Import depuis un lien"
+    return await run_in_threadpool(
+        lambda: queue_import(
+            video_id, options, filename="", original_filename=name[:255], path=str(settings.uploads_dir / f"{video_id}.download"),
+            duration_seconds=0.0, size_bytes=0, source_url=url,
+        )
+    )

@@ -278,7 +278,7 @@ def restore(name: str, *, database: str | None = None, safety_copy: bool = True)
     with _exclusive():
         if other_sessions(connection, target):
             raise BackupError(
-                "Des services utilisent encore la base. Arrêtez-les d'abord : docker compose stop api worker scheduler web"
+                "Des services utilisent encore la base. Arrêtez-les d'abord : docker compose stop api worker scheduler live web"
             )
         safety = _create_unlocked("avant-restauration") if safety_copy and database is None else None
         _psql(connection, "postgres", f"DROP DATABASE IF EXISTS {_quote_identifier(temporary)}")

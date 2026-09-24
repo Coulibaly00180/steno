@@ -18,6 +18,10 @@ services:
     volumes:
       - ./backend:/app
 
+  live:
+    volumes:
+      - ./backend:/app
+
   web:
     command: npm run dev
     environment:

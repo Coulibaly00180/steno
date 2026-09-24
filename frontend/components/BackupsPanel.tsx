@@ -114,7 +114,7 @@ export default function BackupsPanel() {
       <h2 id="restore-title">Restaurer la sauvegarde du {dateTime(restoreTarget.created_at)}</h2>
       <p>La base actuelle est <strong>remplacée</strong> : les analyses faites depuis cette date disparaissent de la bibliothèque (leurs fichiers restent dans <code>data/</code>). Une copie de sécurité de la base actuelle est faite juste avant. La restauration se lance depuis un terminal, dans le dossier du projet, application arrêtée :</p>
       <ol className="restore-steps">
-        <li>Arrêter les services qui utilisent la base :<Command text="docker compose stop api worker scheduler web" /></li>
+        <li>Arrêter les services qui utilisent la base :<Command text="docker compose stop api worker scheduler live web" /></li>
         <li>Restaurer (dans une base temporaire, qui ne remplace l&apos;actuelle qu&apos;en cas de succès) :<Command text={`docker compose --profile tools run --rm restore ${restoreTarget.name}`} /></li>
         <li>Relancer l&apos;application (les migrations mettent la base à jour si besoin) :<Command text="docker compose -f compose.yaml -f compose.gpu.yaml up -d" /><span className="field-hint">Sans carte NVIDIA : <code>docker compose up -d</code></span></li>
       </ol>

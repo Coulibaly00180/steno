@@ -13,3 +13,4 @@ pgvector==0.5.0
 sherpa-onnx==1.13.8
 python-docx==1.2.0
 reportlab==5.0.1
+defusedxml==0.7.1

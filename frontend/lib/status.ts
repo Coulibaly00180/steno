@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { API } from "./api";
 
 export type ServiceState = "ok" | "degraded" | "down";
-export type ServiceName = "database" | "redis" | "worker" | "scheduler" | "ollama" | "model" | "embedding";
+export type ServiceName = "database" | "redis" | "worker" | "scheduler" | "live" | "ollama" | "model" | "embedding";
 export type ServiceStatus = { status: ServiceState; detail: string | null };
 export type SystemStatus = { overall: ServiceState; checked_at: string; services: Record<ServiceName, ServiceStatus> };
 
@@ -13,6 +13,7 @@ export const serviceLabels: Record<ServiceName, string> = {
   redis: "Redis",
   worker: "Worker",
   scheduler: "Dossier surveillé et sauvegardes",
+  live: "Transcription en direct",
   ollama: "Ollama",
   model: "Modèle LLM",
   embedding: "Recherche (embeddings)",

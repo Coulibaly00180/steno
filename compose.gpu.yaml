@@ -28,6 +28,23 @@ services:
               count: 1
               capabilities: [gpu]
 
+  # The live model stays small ("small", ~0.5 GB) next to the worker's Whisper and Ollama.
+  live:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.gpu
+    command: python -m app.live
+    environment:
+      WHISPER_DEVICE: cuda
+      WHISPER_COMPUTE_TYPE: float16
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
   api:
     environment:
       # The chat sends up to 30 000 characters of transcript.

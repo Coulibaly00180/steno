@@ -17,6 +17,7 @@ OK = {
         "embedding": {"status": "ok", "detail": "bge-m3 · présent"},
     },
     "scheduler": {"scheduler": {"status": "ok", "detail": "actif"}},
+    "live": {"live": {"status": "ok", "detail": "actif · small"}},
 }
 
 
@@ -27,6 +28,7 @@ def fresh_cache(monkeypatch):
 
 def use_checks(monkeypatch, database=None, queue=None, ollama=None, scheduler=None):
     monkeypatch.setattr(status, "check_scheduler", scheduler or (lambda: OK["scheduler"]))
+    monkeypatch.setattr(status, "check_live", lambda: OK["live"])
     monkeypatch.setattr(status, "check_database", database or (lambda: OK["database"]))
     monkeypatch.setattr(status, "check_queue", queue or (lambda: OK["queue"]))
     monkeypatch.setattr(status, "check_ollama", ollama or (lambda: OK["ollama"]))
@@ -38,7 +40,7 @@ def test_all_services_ok(client, monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["overall"] == "ok"
-    assert list(body["services"]) == ["database", "redis", "worker", "scheduler", "ollama", "model", "embedding"]
+    assert list(body["services"]) == ["database", "redis", "worker", "scheduler", "live", "ollama", "model", "embedding"]
 
 
 def test_stopped_scheduler_is_degraded(client, monkeypatch):

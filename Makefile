@@ -38,7 +38,7 @@ backup:
 
 # Usage: make restore f=steno-20260923-030000-auto.dump (see docs/sauvegardes.md)
 restore:
-	docker compose stop api worker scheduler web
+	docker compose stop api worker scheduler live web
 	docker compose --profile tools run --rm restore "$(f)"
 	docker compose up -d
 

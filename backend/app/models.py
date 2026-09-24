@@ -52,6 +52,8 @@ class Video(Base):
     # What happens to the media once processed (n°14): "keep", "audio" (compact
     # audio only) or "delete" (text only). See app.storage.
     source_policy: Mapped[str] = mapped_column(String(16), default="keep", server_default="keep")
+    # Link the media was downloaded from (n°12): the worker fetches it first.
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     # Explicit ordering: PostgreSQL returns rows in no guaranteed order, and
@@ -246,6 +248,52 @@ class GlossaryDismissal(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     term: Mapped[str] = mapped_column(String(60))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Recording(Base):
+    """A recording made in the browser (n°10), uploaded chunk by chunk while it runs.
+
+    RECORDING until the user stops it; then FINISHED (imported as `video_id`)
+    or CANCELLED. `live` asks the live service for a running transcript (n°11).
+    """
+
+    __tablename__ = "recordings"
+    __table_args__ = (Index("ix_recordings_status", "status"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(16), default="RECORDING")
+    live: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    mime_type: Mapped[str] = mapped_column(String(80))
+    path: Mapped[str] = mapped_column(Text)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    chunks: Mapped[int] = mapped_column(Integer, default=0)
+    # Language forced for the live transcript, when the user knows it.
+    language: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    video_id: Mapped[str | None] = mapped_column(
+        ForeignKey("videos.id", ondelete="SET NULL", name="fk_recordings_video_id"), nullable=True
+    )
+    live_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    live_segments: Mapped[list["LiveSegment"]] = relationship(
+        cascade="all, delete-orphan", order_by="LiveSegment.start_seconds"
+    )
+
+
+class LiveSegment(Base):
+    """A line of the live transcript: a preview, replaced by the full transcription at the end."""
+
+    __tablename__ = "live_segments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    recording_id: Mapped[str] = mapped_column(
+        ForeignKey("recordings.id", ondelete="CASCADE", name="fk_live_segments_recording_id"), index=True
+    )
+    start_seconds: Mapped[float] = mapped_column(Float)
+    end_seconds: Mapped[float] = mapped_column(Float)
+    text: Mapped[str] = mapped_column(Text)
 
 
 class AppSetting(Base):

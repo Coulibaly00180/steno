@@ -8,6 +8,7 @@ import { serviceLabels, useSystemStatus, type ServiceName, type ServiceState } f
 
 const nav = [
   { href: "/", label: "Accueil", icon: "home" as const },
+  { href: "/record", label: "Enregistrer", icon: "mic" as const },
   { href: "/library", label: "Bibliothèque", icon: "library" as const },
   { href: "/ask", label: "Questions", icon: "chat" as const },
   { href: "/templates", label: "Templates", icon: "template" as const },

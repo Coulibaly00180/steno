@@ -119,8 +119,25 @@ services:
       redis:
         condition: service_healthy
 
+  # Live transcript of the recordings made in the browser (n°11): a preview,
+  # the full transcription runs in the worker once the recording stops.
+  live:
+    build: ./backend
+    command: python -m app.live
+    env_file: .env
+    volumes:
+      - ./data:/data
+      - whisper_cache:/root/.cache/huggingface
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   # Guided restore of a backup, services stopped first (docs/sauvegardes.md):
-  #   docker compose stop api worker scheduler web
+  #   docker compose stop api worker scheduler live web
   #   docker compose --profile tools run --rm restore steno-AAAAMMJJ-HHMMSS-auto.dump
   #   docker compose up -d
   restore:

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { api, formatBytes, formatDuration, uploadForm } from "../lib/api";
 import { Icon } from "../components/Icons";
+import LinkImport, { type LinkItem } from "../components/LinkImport";
 import VideoTable from "../components/VideoTable";
 import { useSystemStatus } from "../lib/status";
 import { useVideoList } from "../lib/library";
@@ -88,6 +89,10 @@ export default function Home() {
   const [diarize, setDiarize] = useState(false);
   const [numSpeakers, setNumSpeakers] = useState("");
   const [sourcePolicy, setSourcePolicy] = useState<SourcePolicy>("keep");
+  // n°12: import from a link instead of a file.
+  const [mode, setMode] = useState<"file" | "link">("file");
+  const [linkItems, setLinkItems] = useState<LinkItem[]>([]);
+  const [rightsConfirmed, setRightsConfirmed] = useState(false);
   const [glossaryCount, setGlossaryCount] = useState<number | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -186,8 +191,37 @@ export default function Home() {
     } finally { uploadAbort.current = null; }
   }
 
+  /** The form's options as JSON, for the link imports. */
+  function jsonOptions() {
+    return {
+      target_language: targetLanguage || null, template_id: templateId || null, custom_prompt: customPrompt.trim() || null,
+      summary_length: summaryLength, source_language: sourceLanguage || null, vocabulary: vocabulary.trim() || null,
+      use_global_glossary: useGlossary && glossaryCount !== 0, diarize, num_speakers: diarize && numSpeakers ? Number(numSpeakers) : null,
+      source_policy: sourcePolicy,
+    };
+  }
+
+  async function importLinks() {
+    const chosen = linkItems.filter(item => item.selected);
+    if (!chosen.length || !rightsConfirmed) return;
+    setBusy(true); setError(""); setBatchResult("");
+    const jobs: Job[] = [];
+    const failures: string[] = [];
+    for (const item of chosen) {
+      try { jobs.push(await api<Job>("/imports/url", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: item.url, title: item.title, ...jsonOptions() }) })); }
+      catch (reason) { failures.push(`${item.title} : ${reason instanceof Error ? reason.message : String(reason)}`); }
+    }
+    setBusy(false);
+    if (chosen.length === 1 && jobs.length === 1) { router.push(`/videos/${jobs[0].video_id}?job=${jobs[0].id}`); return; }
+    if (failures.length) setError(failures.join(" · "));
+    setBatchResult(`${jobs.length} import${jobs.length > 1 ? "s" : ""} ajouté${jobs.length > 1 ? "s" : ""} à la file : chaque fichier sera téléchargé puis analysé.`);
+    setLinkItems([]); setRightsConfirmed(false);
+    void recent.reload();
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (mode === "link") { await importLinks(); return; }
     const pending = files.filter(item => item.upload.state !== "done");
     if (!pending.length) return;
     setBusy(true); setError(""); setBatchResult("");
@@ -205,14 +239,15 @@ export default function Home() {
     void recent.reload();
   }
 
-  const toSend = files.filter(item => item.upload.state !== "done").length;
+  const toSend = mode === "link" ? (rightsConfirmed ? linkItems.filter(item => item.selected).length : 0) : files.filter(item => item.upload.state !== "done").length;
 
   return <div className="page">
     <header className="page-header"><h1>Analyser une vidéo</h1><p>Transcrivez, traduisez et résumez vos vidéos avec votre IA locale.</p></header>
     <StatusBanner status={status} />
+    <div className="segmented import-mode" role="radiogroup" aria-label="Source de l'import"><button type="button" role="radio" aria-checked={mode === "file"} className={mode === "file" ? "selected" : ""} onClick={() => setMode("file")} disabled={busy}><Icon name="upload" size={14}/> Fichier</button><button type="button" role="radio" aria-checked={mode === "link"} className={mode === "link" ? "selected" : ""} onClick={() => setMode("link")} disabled={busy}><Icon name="link" size={14}/> Lien</button><Link className="text-link record-link" href="/record"><Icon name="mic" size={14}/> ou enregistrer depuis le navigateur</Link></div>
     <form onSubmit={submit}>
       <input ref={fileInput} hidden type="file" multiple accept="video/*,audio/*,.mkv,.flac,.ogv,.ogg,.oga,.opus" onChange={event => addFiles(event.target.files)} />
-      {!files.length ? <button type="button" className={`dropzone${dragging ? " dragging" : ""}`} onClick={() => fileInput.current?.click()} onDragEnter={event => { event.preventDefault(); setDragging(true); }} onDragOver={event => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={drop}>
+      {mode === "link" ? <LinkImport items={linkItems} onItems={setLinkItems} confirmed={rightsConfirmed} onConfirmed={setRightsConfirmed} disabled={busy} /> : !files.length ? <button type="button" className={`dropzone${dragging ? " dragging" : ""}`} onClick={() => fileInput.current?.click()} onDragEnter={event => { event.preventDefault(); setDragging(true); }} onDragOver={event => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={drop}>
         <span className="drop-icon"><Icon name="upload" size={22}/></span><span className="drop-title">Déposez une ou plusieurs vidéos ou fichiers audio</span><span className="drop-subtitle">ou cliquez pour parcourir</span><span className="drop-formats">MP4 · MOV · MKV · WEBM · OGV · MP3 · WAV · FLAC · OGG</span><span className="drop-limit">Jusqu&apos;à 6 h · 2 Go max par fichier · {MAX_BATCH_FILES} fichiers max</span>
       </button> : <div className={`file-list${dragging ? " dragging" : ""}`} onDragEnter={event => { event.preventDefault(); setDragging(true); }} onDragOver={event => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={drop}>
         {files.map(item => { const label = uploadLabel(item.upload); return <div className={`file-card upload-${item.upload.state}`} key={item.key}>

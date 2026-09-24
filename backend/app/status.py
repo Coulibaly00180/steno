@@ -21,6 +21,8 @@ from .schema import database_revision, head_revision
 
 # Written by the scheduler service (app.scheduler) while it runs.
 SCHEDULER_HEARTBEAT_KEY = "steno:scheduler:heartbeat"
+# Written by the live transcription service (app.live) while it runs.
+LIVE_HEARTBEAT_KEY = "steno:live:heartbeat"
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +94,19 @@ def check_scheduler() -> dict:
     return {"scheduler": _result("ok", "actif")}
 
 
+def check_live() -> dict:
+    """The live transcription service (n°11); recordings still work without it."""
+    redis = Redis.from_url(settings.redis_url, socket_connect_timeout=1, socket_timeout=1)
+    try:
+        alive = redis.exists(LIVE_HEARTBEAT_KEY)
+    except Exception:
+        logger.warning("Status check: Redis unavailable for the live heartbeat", exc_info=True)
+        return {"live": _result("down", "état inconnu (Redis indisponible)")}
+    if not alive:
+        return {"live": _result("down", "arrêté : pas de transcription en direct")}
+    return {"live": _result("ok", f"actif · {settings.live_whisper_model}")}
+
+
 def _model_tag(name: str) -> str:
     # Ollama stores untagged models as "<name>:latest".
     return name if ":" in name else f"{name}:latest"
@@ -155,9 +170,10 @@ async def system_status() -> dict:
         _run(check_queue, ("redis", "worker")),
         _run(check_ollama, ("ollama", "model", "embedding")),
         _run(check_scheduler, ("scheduler",)),
+        _run(check_live, ("live",)),
     )
     services = {name: result for part in parts for name, result in part.items()}
-    ordered = {name: services[name] for name in ("database", "redis", "worker", "scheduler", "ollama", "model", "embedding")}
+    ordered = {name: services[name] for name in ("database", "redis", "worker", "scheduler", "live", "ollama", "model", "embedding")}
     report = {
         "overall": _overall(ordered),
         "checked_at": datetime.now(timezone.utc).isoformat(),

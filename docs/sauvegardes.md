@@ -14,7 +14,7 @@ Le service `scheduler` écrit une sauvegarde automatique au démarrage si aucune
 La restauration **remplace** la base : elle se lance en ligne de commande, application arrêtée.
 
 ```sh
-docker compose stop api worker scheduler web
+docker compose stop api worker scheduler live web
 docker compose --profile tools run --rm restore steno-20260923-030000-auto.dump
 docker compose -f compose.yaml -f compose.gpu.yaml up -d   # ou : docker compose up -d
 ```

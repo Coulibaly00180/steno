@@ -33,7 +33,8 @@ from .retrieval import build_passages, embed_texts, record_index_failure, transc
 from .speakers import apply_turns, build_transcript, speaker_labels
 from .storage import StorageError, can_compact, compact_to_audio, delete_media
 from .transcription import StallWatchdog, transcribe_windows
-from .utils import split_text, timestamp
+from .utils import ffprobe_duration, split_text, timestamp
+from . import url_import
 
 _whisper_model = None
 
@@ -819,7 +820,8 @@ def run_pipeline(job_id: str) -> None:
             if video.status in TERMINAL_VIDEO_STATUSES:
                 raise PipelineError("Vidéo déjà terminée")
             video_path = Path(video.path)
-            if not video_path.is_file():
+            source_url = video.source_url
+            if not video_path.is_file() and not source_url:
                 raise PipelineError(ERROR_SOURCE_NOT_FOUND)
             audio_path = settings.audio_dir / f"{video.id}.wav"
             target_language = video.target_language
@@ -838,6 +840,10 @@ def run_pipeline(job_id: str) -> None:
 
         if not set_video_status(video_id, "PROCESSING"):
             raise PipelineError("Vidéo déjà terminée ou transition invalide")
+
+        if not video_path.is_file():
+            # Imported from a link (n°12): fetch the file first.
+            video_path, video_duration = download_source(job_id, video_id, source_url)
 
         settings.exports_dir.mkdir(parents=True, exist_ok=True)
         if not transcript:
@@ -932,6 +938,44 @@ def run_pipeline(job_id: str) -> None:
     except Exception as exc:
         _record_failure(job_id, video_id, ERROR_PROCESSING_FAILED, exc)
         raise
+
+
+def download_source(job_id: str, video_id: str, url: str) -> tuple[Path, float]:
+    """Download the media of a link import, probe it, record it on the video (n°12)."""
+    set_job(job_id, stage="DOWNLOADING", progress=2)
+    last = [2]
+
+    def progress(done: int, total: int | None) -> None:
+        if total:
+            value = 2 + int(5 * done / total)
+            if value > last[0]:
+                last[0] = value
+                set_job(job_id, progress=value)
+
+    try:
+        path, filename = url_import.download(url, settings.uploads_dir, video_id, on_progress=progress)
+    except url_import.UrlImportError as exc:
+        raise PipelineError(str(exc)) from exc
+    try:
+        duration = ffprobe_duration(path, timeout_seconds=settings.ffprobe_timeout_seconds)
+    except Exception as exc:
+        path.unlink(missing_ok=True)
+        raise PipelineError("Fichier téléchargé illisible : ce n'est pas un média valide") from exc
+    if duration > settings.max_video_hours * 3600:
+        path.unlink(missing_ok=True)
+        raise PipelineError(f"Durée maximale: {settings.max_video_hours:g} heures")
+    with SessionLocal() as db:
+        video = db.get(Video, video_id)
+        if not video:
+            path.unlink(missing_ok=True)
+            raise PipelineError(ERROR_VIDEO_NOT_FOUND)
+        video.path, video.filename = str(path), path.name
+        video.duration_seconds, video.size_bytes = duration, path.stat().st_size
+        if not video.original_filename:
+            video.original_filename = filename
+        db.commit()
+    check_cancelled(job_id)
+    return path, duration
 
 
 def _apply_source_policy(job_id: str, video_id: str) -> None:

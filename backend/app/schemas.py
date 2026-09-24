@@ -168,6 +168,8 @@ class VideoDetail(VideoOut):
     diarization_error: str | None = None
     # What happens to the media once processed (n°14): keep, audio, delete.
     source_policy: str = "keep"
+    # Link the media was downloaded from (n°12).
+    source_url: str | None = None
     speakers: list[SpeakerOut] = []
     segments: list[SegmentOut]
     summaries: list[SummaryOut]
@@ -297,3 +299,55 @@ class BackupSettings(BaseModel):
 class StorageActionIn(BaseModel):
     # "audio": compact audio only; "delete_media": text only; "delete_work_audio": the extracted WAV.
     action: str = Field(max_length=32)
+
+
+class ImportOptionsIn(BaseModel):
+    """The import form's options, as JSON (recordings, links)."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    target_language: str | None = Field(default=None, max_length=32)
+    template_id: str | None = Field(default=None, max_length=36)
+    custom_prompt: str | None = Field(default=None, max_length=2000)
+    summary_length: str | None = Field(default=None, max_length=16)
+    source_language: str | None = Field(default=None, max_length=8)
+    vocabulary: str | None = Field(default=None, max_length=1000)
+    use_global_glossary: bool = True
+    diarize: bool = False
+    num_speakers: int | None = None
+    source_policy: str | None = Field(default=None, max_length=16)
+
+
+class RecordingCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    title: str = Field(min_length=1, max_length=200)
+    mime_type: str = Field(min_length=1, max_length=80)
+    live: bool = False
+    language: str | None = Field(default=None, max_length=8)
+
+
+class RecordingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    title: str
+    status: str
+    live: bool
+    mime_type: str
+    size_bytes: int
+    chunks: int
+    language: str | None
+    video_id: str | None
+    live_error: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class UrlPreviewIn(BaseModel):
+    url: str = Field(min_length=1, max_length=2000)
+
+
+class UrlImportIn(ImportOptionsIn):
+    url: str = Field(min_length=1, max_length=2000)
+    title: str | None = Field(default=None, max_length=200)
