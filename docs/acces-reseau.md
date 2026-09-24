@@ -35,4 +35,5 @@ Pour refermer l'accès : `docker compose --profile reseau rm -sf https`, ou supp
 
 - Le port 8443 ne doit pas être ouvert vers Internet. Le proxy est prévu pour un réseau local de confiance.
 - Il n'y a qu'un compte : toute personne qui connaît le mot de passe voit toute la bibliothèque.
+- Sous Docker Desktop pour Windows, tous les appareils du réseau arrivent avec la même adresse IP côté conteneurs : la limite de tentatives (10 par 15 minutes) est donc partagée par tout le monde. Quelqu'un qui se trompe 10 fois bloque temporairement la connexion des autres appareils du réseau — jamais celle de l'ordinateur où Sténo est installé, qui n'a pas besoin de se connecter.
 - Les ports 3000 (interface) et 8000 (API) restent liés à `127.0.0.1`. Les publier sur le réseau contournerait le proxy, et donc le mot de passe.
