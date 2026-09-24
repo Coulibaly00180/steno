@@ -98,6 +98,7 @@ from .schemas import (
     RecordingCreate,
     RecordingOut,
     UrlImportIn,
+    UrlImportSettings,
     UrlPreviewIn,
     StorageActionIn,
     WatchFolderSettings,
@@ -2257,6 +2258,21 @@ async def live_transcript(recording_id: str):
 
 
 # --- Import from a link (n°12) -------------------------------------------------------------
+
+@app.get("/settings/url-import", response_model=UrlImportSettings)
+def get_url_import_settings():
+    with SessionLocal() as db:
+        return app_settings.load(db, app_settings.URL_IMPORT, UrlImportSettings)
+
+
+@app.put("/settings/url-import", response_model=UrlImportSettings)
+def put_url_import_settings(payload: UrlImportSettings):
+    """Video platforms (yt-dlp): the user's choice, and their responsibility for the rights."""
+    with SessionLocal() as db:
+        app_settings.save(db, app_settings.URL_IMPORT, payload)
+        db.commit()
+    return payload
+
 
 @app.post("/imports/url/preview")
 async def preview_url(payload: UrlPreviewIn):

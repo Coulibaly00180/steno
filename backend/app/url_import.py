@@ -1,11 +1,12 @@
 """Import from a link (n°12): a direct link to an audio or video file, or a podcast feed.
 
 Scope and rights: Sténo downloads files that a server hands out as files
-(a podcast episode, a conference recording, a file on a public share). It
-does not extract videos from platform pages (YouTube…): their terms usually
-forbid it, and the user may not hold the rights. A web page is refused with
-an explanation; the interface asks the user to import only content they may
-use, and the link is kept with the video (`Video.source_url`).
+(a podcast episode, a conference recording, a file on a public share). Pages
+of video platforms (YouTube, Vimeo, PeerTube…) are read with yt-dlp only when
+the user turns the option on (Paramètres › Import de liens, off by default):
+their terms usually forbid downloads, and the user must hold the rights. The
+interface asks for that confirmation, and the link is kept with the video
+(`Video.source_url`). Only the audio is downloaded: it is all the analysis needs.
 
 Network safety: the API and the worker sit next to PostgreSQL, Redis and
 Ollama. A link to a private or local address is refused, at every redirect,
@@ -26,7 +27,10 @@ import httpx
 from defusedxml import DefusedXmlException
 from defusedxml import ElementTree as SafeET
 
+from . import app_settings
 from .config import settings
+from .db import SessionLocal
+from .schemas import UrlImportSettings
 from .storage import AUDIO_SUFFIXES, VIDEO_SUFFIXES
 
 logger = logging.getLogger(__name__)
@@ -37,9 +41,14 @@ FEED_MAX_EPISODES = 100
 CHUNK = 1024 * 1024
 USER_AGENT = "Steno/0.1 (+import local de fichiers audio et video)"
 PAGE_MESSAGE = (
-    "Ce lien mène à une page web, pas à un fichier audio ou vidéo. Sténo n'extrait pas les vidéos des "
-    "plateformes (YouTube…) : si vous avez le droit d'utiliser ce contenu, téléchargez le fichier puis importez-le."
+    "Ce lien mène à une page web, pas à un fichier audio ou vidéo. Pour les plateformes vidéo (YouTube…), "
+    "activez l'option dans Paramètres › Import de liens, si vous avez le droit d'utiliser ce contenu."
 )
+NO_VIDEO_MESSAGE = "Aucune vidéo reconnue sur cette page"
+HTML_TYPES = ("text/html", "application/xhtml+xml")
+# yt-dlp: known sites only. The "generic" extractor would fetch any page and follow its links.
+PLATFORM_EXTRACTORS = ["default", "-generic"]
+PLATFORM_FORMAT = "bestaudio[ext=m4a]/bestaudio/best"
 CONTENT_TYPES = {
     "audio/mpeg": ".mp3", "audio/mp3": ".mp3", "audio/mp4": ".m4a", "audio/x-m4a": ".m4a", "audio/aac": ".m4a",
     "audio/wav": ".wav", "audio/x-wav": ".wav", "audio/wave": ".wav", "audio/flac": ".flac", "audio/x-flac": ".flac",
@@ -233,44 +242,174 @@ def probe(url: str, client: httpx.Client | None = None) -> dict:
             }
         if kind in FEED_TYPES or kind in GENERIC_TYPES or kind == "text/plain":
             return parse_feed(_read_limited(response, FEED_MAX_BYTES), final_url)
-        if kind in ("text/html", "application/xhtml+xml"):
-            raise UrlImportError(PAGE_MESSAGE)
-        raise UrlImportError("Ce lien ne mène pas à un fichier audio ou vidéo pris en charge")
+        if kind not in HTML_TYPES:
+            raise UrlImportError("Ce lien ne mène pas à un fichier audio ou vidéo pris en charge")
+    # A web page: a video platform, if the user allows them.
+    if not platforms_enabled():
+        raise UrlImportError(PAGE_MESSAGE)
+    return probe_platform(final_url)
 
 
 def download(url: str, folder: Path, stem: str, *, on_progress=None, client: httpx.Client | None = None) -> tuple[Path, str]:
     """Download the media into `folder/<stem><suffix>`; returns the path and the server's file name."""
     with open_stream(url, client) as response:
-        if _content_type(response) in ("text/html", "application/xhtml+xml"):
-            raise UrlImportError(PAGE_MESSAGE)
-        suffix = media_suffix(response)
-        if suffix is None:
-            raise UrlImportError("Ce lien ne mène pas à un fichier audio ou vidéo pris en charge")
-        length = response.headers.get("content-length", "")
-        total = int(length) if length.isdigit() else None
-        if total and total > settings.max_download_bytes:
-            raise UrlImportError(f"Fichier trop volumineux (limite : {settings.max_download_bytes // 1024 ** 2} Mo)")
-        folder.mkdir(parents=True, exist_ok=True)
-        final = folder / f"{stem}{suffix}"
-        partial = folder / f".{stem}.download"
-        done = 0
-        try:
-            with partial.open("wb") as out:
-                for chunk in response.iter_bytes(CHUNK):
-                    done += len(chunk)
-                    if done > settings.max_download_bytes:
-                        raise UrlImportError(f"Fichier trop volumineux (limite : {settings.max_download_bytes // 1024 ** 2} Mo)")
-                    out.write(chunk)
-                    if on_progress:
-                        on_progress(done, total)
-            if done == 0:
-                raise UrlImportError("Le fichier téléchargé est vide")
-            os.replace(partial, final)
-        except httpx.HTTPError as exc:
-            raise UrlImportError("Le téléchargement a été interrompu") from exc
-        finally:
-            partial.unlink(missing_ok=True)
-        name = response_filename(response)
-        if Path(name).suffix.lower() != suffix:
-            name = f"{Path(name).stem or 'media'}{suffix}"
-        return final, name
+        if _content_type(response) not in HTML_TYPES:
+            return _download_file(response, folder, stem, on_progress)
+    if not platforms_enabled():
+        raise UrlImportError(PAGE_MESSAGE)
+    return download_platform(url, folder, stem, on_progress=on_progress)
+
+
+def _too_large() -> UrlImportError:
+    return UrlImportError(f"Fichier trop volumineux (limite : {settings.max_download_bytes // 1024 ** 2} Mo)")
+
+
+def _download_file(response: httpx.Response, folder: Path, stem: str, on_progress) -> tuple[Path, str]:
+    suffix = media_suffix(response)
+    if suffix is None:
+        raise UrlImportError("Ce lien ne mène pas à un fichier audio ou vidéo pris en charge")
+    length = response.headers.get("content-length", "")
+    total = int(length) if length.isdigit() else None
+    if total and total > settings.max_download_bytes:
+        raise _too_large()
+    folder.mkdir(parents=True, exist_ok=True)
+    final = folder / f"{stem}{suffix}"
+    partial = folder / f".{stem}.download"
+    done = 0
+    try:
+        with partial.open("wb") as out:
+            for chunk in response.iter_bytes(CHUNK):
+                done += len(chunk)
+                if done > settings.max_download_bytes:
+                    raise _too_large()
+                out.write(chunk)
+                if on_progress:
+                    on_progress(done, total)
+        if done == 0:
+            raise UrlImportError("Le fichier téléchargé est vide")
+        os.replace(partial, final)
+    except httpx.HTTPError as exc:
+        raise UrlImportError("Le téléchargement a été interrompu") from exc
+    finally:
+        partial.unlink(missing_ok=True)
+    name = response_filename(response)
+    if Path(name).suffix.lower() != suffix:
+        name = f"{Path(name).stem or 'media'}{suffix}"
+    return final, name
+
+
+# --- Video platforms (yt-dlp, optional) ------------------------------------------------------
+
+def platforms_enabled() -> bool:
+    with SessionLocal() as db:
+        return app_settings.load(db, app_settings.URL_IMPORT, UrlImportSettings).platforms
+
+
+def _youtube_dl(options: dict):
+    """A yt-dlp downloader (imported here: it is large, and the tests replace this function)."""
+    from yt_dlp import YoutubeDL
+
+    return YoutubeDL(options)
+
+
+def _platform_options(**extra) -> dict:
+    return {
+        "quiet": True, "no_warnings": True, "noprogress": True, "allowed_extractors": PLATFORM_EXTRACTORS,
+        "socket_timeout": settings.download_timeout_seconds, "retries": 3, **extra,
+    }
+
+
+def _platform_error(exc: Exception) -> UrlImportError:
+    from yt_dlp.utils import DownloadError, UnsupportedError
+
+    if isinstance(exc, UnsupportedError) or "Unsupported URL" in str(exc):
+        return UrlImportError(NO_VIDEO_MESSAGE)
+    if isinstance(exc, DownloadError):
+        # yt-dlp's message ("Private video", "Sign in to confirm your age"…) helps more than a generic one.
+        detail = re.sub(r"^ERROR:\s*(\[[^\]]+\]\s*[\w-]+:\s*)?", "", str(exc)).strip()[:200]
+        return UrlImportError(f"La plateforme refuse le téléchargement : {detail}")
+    return UrlImportError("Échec de la lecture de la page")
+
+
+def _duration_error(duration) -> UrlImportError | None:
+    if duration and duration > settings.max_video_hours * 3600:
+        return UrlImportError(f"Durée maximale: {settings.max_video_hours:g} heures")
+    return None
+
+
+def probe_platform(url: str) -> dict:
+    """A platform page: one video (title, duration, site), or a playlist or channel listed like a feed."""
+    try:
+        with _youtube_dl(_platform_options(extract_flat="in_playlist", skip_download=True)) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception as exc:
+        raise _platform_error(exc) from exc
+    if not info:
+        raise UrlImportError(NO_VIDEO_MESSAGE)
+    site = info.get("extractor_key") or info.get("extractor") or ""
+    if info.get("entries") is not None:
+        episodes = [
+            {
+                "title": str(entry.get("title") or "Vidéo")[:200], "url": entry.get("webpage_url") or entry.get("url"),
+                "published": None, "duration_seconds": entry.get("duration"), "size_bytes": None, "content_type": None,
+            }
+            for entry in list(info["entries"])[:FEED_MAX_EPISODES]
+            if entry and (entry.get("webpage_url") or entry.get("url"))
+        ]
+        if not episodes:
+            raise UrlImportError(NO_VIDEO_MESSAGE)
+        return {"kind": "feed", "title": str(info.get("title") or site or "Liste")[:200], "episodes": episodes, "site": site}
+    error = _duration_error(info.get("duration"))
+    if error:
+        raise error
+    return {
+        "kind": "platform", "url": info.get("webpage_url") or url, "title": str(info.get("title") or "Vidéo")[:200],
+        "duration_seconds": info.get("duration"), "uploader": info.get("uploader") or info.get("channel"),
+        "site": site, "license": info.get("license"),
+    }
+
+
+def download_platform(url: str, folder: Path, stem: str, *, on_progress=None) -> tuple[Path, str]:
+    """Download the audio of a platform video into `folder/<stem><suffix>`."""
+    folder.mkdir(parents=True, exist_ok=True)
+    template = str(folder / f".{stem}.platform.%(ext)s")
+
+    def hook(status: dict) -> None:
+        if status.get("status") == "downloading" and on_progress:
+            on_progress(int(status.get("downloaded_bytes") or 0), status.get("total_bytes") or status.get("total_bytes_estimate"))
+
+    def duration_filter(info, *, incomplete=False):
+        error = _duration_error(info.get("duration"))
+        return str(error) if error else None
+
+    options = _platform_options(
+        format=PLATFORM_FORMAT, outtmpl=template, noplaylist=True, max_filesize=settings.max_download_bytes,
+        progress_hooks=[hook], match_filter=duration_filter, overwrites=True,
+    )
+    try:
+        with _youtube_dl(options) as ydl:
+            info = ydl.extract_info(url, download=True)
+    except UrlImportError:
+        raise
+    except Exception as exc:
+        for path in folder.glob(f".{stem}.platform.*"):
+            path.unlink(missing_ok=True)
+        raise _platform_error(exc) from exc
+    produced = sorted(folder.glob(f".{stem}.platform.*"))
+    files = [path for path in produced if not path.name.endswith((".part", ".ytdl"))]
+    if not info or not files:
+        for path in produced:
+            path.unlink(missing_ok=True)
+        error = _duration_error((info or {}).get("duration"))
+        raise error or UrlImportError("La plateforme n'a fourni aucun fichier (trop volumineux ou indisponible)")
+    source = files[0]
+    suffix = source.suffix.lower()
+    if suffix not in AUDIO_SUFFIXES | VIDEO_SUFFIXES:
+        source.unlink(missing_ok=True)
+        raise UrlImportError("Format fourni par la plateforme non pris en charge")
+    final = folder / f"{stem}{suffix}"
+    os.replace(source, final)
+    for path in produced[1:]:
+        path.unlink(missing_ok=True)
+    title = " ".join(re.sub(r'[\\/:*?"<>|]+', " ", str(info.get("title") or "Vidéo")).split())[:200] or "Vidéo"
+    return final, f"{title}{suffix}"

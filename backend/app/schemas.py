@@ -351,3 +351,9 @@ class UrlPreviewIn(BaseModel):
 class UrlImportIn(ImportOptionsIn):
     url: str = Field(min_length=1, max_length=2000)
     title: str | None = Field(default=None, max_length=200)
+
+
+class UrlImportSettings(BaseModel):
+    """Imports from a link (n°12): video platforms are the user's choice, off by default."""
+
+    platforms: bool = False

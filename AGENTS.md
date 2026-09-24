@@ -78,7 +78,7 @@ Vérifier que le GPU est bien utilisé : `docker compose exec worker python -c "
 | Réglages modifiés depuis l'interface | `backend/app/app_settings.py` (table `app_settings`) |
 | Enregistrement depuis le navigateur (morceaux envoyés au fil de l'eau, `/recordings`) | `/recordings` dans `main.py`, `frontend/app/record/`, `frontend/lib/recorder.ts` |
 | Service `live` : transcription en direct d'un enregistrement (aperçu, petit modèle) | `backend/app/live.py` (`LiveDecoder`, `LiveTranscriber`), table `live_segments` |
-| Import d'un lien (fichier ou flux RSS, étape « Téléchargement » du worker, adresses privées refusées) | `backend/app/url_import.py`, `download_source` (`worker.py`), `frontend/components/LinkImport.tsx` |
+| Import d'un lien (fichier, flux RSS, plateformes vidéo via yt-dlp si l'option est activée ; étape « Téléchargement » du worker, adresses privées refusées) | `backend/app/url_import.py`, `download_source` (`worker.py`), `frontend/components/LinkImport.tsx`, `UrlImportPanel.tsx` |
 
 Spécifications et choix : `docs/specs/`.
 

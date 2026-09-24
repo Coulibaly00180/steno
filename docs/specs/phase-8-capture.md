@@ -25,7 +25,9 @@
 ## n°12 — Import d'un lien
 
 - Onglet **Lien** de l'accueil : « Vérifier le lien » (`POST /imports/url/preview`) reconnaît un fichier audio ou vidéo (nom, taille) ou un flux RSS/Atom de podcast (épisodes avec date, durée, taille ; 30 affichés). Chaque élément choisi devient un import (`POST /imports/url`) : la vidéo est créée tout de suite et le worker télécharge le fichier en première étape (« Téléchargement »), puis vérifie sa durée. Une vidéo dont le téléchargement a échoué peut être relancée.
-- **Droits** : Sténo n'extrait pas les vidéos des plateformes (YouTube…), dont les conditions l'interdisent en général. Un lien vers une page web est refusé avec une explication. L'utilisateur coche « J'ai le droit d'utiliser ce contenu » avant l'import, et le lien d'origine est conservé et affiché sur la vidéo (`source_url`).
+- **Plateformes vidéo (option, désactivée par défaut)** : Paramètres › Import de liens (`/settings/url-import`). Activée, une page de plateforme (YouTube, Vimeo, Dailymotion, PeerTube…) est lue avec `yt-dlp` : aperçu (titre, chaîne, durée, licence), listes de lecture présentées comme un flux, **audio seul** téléchargé (`bestaudio`, M4A de préférence). Seuls les sites connus de yt-dlp sont acceptés (extracteur « generic » exclu : il suivrait n'importe quelle page). Durée vérifiée avant le téléchargement ; messages de la plateforme repris (« Private video »…). Désactivée, une page web est refusée avec un renvoi vers l'option.
+- **Droits** : les conditions des plateformes interdisent en général le téléchargement ; c'est un choix de l'utilisateur, averti dans les Paramètres. Avant chaque import, il coche « J'ai le droit d'utiliser ce contenu », et le lien d'origine est conservé et affiché sur la vidéo (`source_url`).
+- **Dépendances** : `yt-dlp[default]` (avec les scripts `yt-dlp-ejs`) et `deno` (moteur JavaScript que YouTube exige désormais), versions figées dans `requirements.txt`. Les plateformes changent souvent : quand les imports échouent, mettre à jour ces versions et reconstruire.
 - **Sécurité réseau** : l'API et le worker côtoient PostgreSQL, Redis et Ollama. Les adresses privées ou locales sont refusées, à chaque redirection (5 au plus), sauf `URL_IMPORT_ALLOW_PRIVATE=true` (un NAS). Les flux sont lus avec `defusedxml` (pas d'entités XML) et limités à 5 Mo, les fichiers à `MAX_DOWNLOAD_BYTES` (4 Go).
 
 ## Défaut lié corrigé : flux SSE retenus par le proxy
@@ -34,15 +36,16 @@ Le serveur Next.js (proxy `/api`) compressait en gzip les réponses `text/event-
 
 ## Vérifications
 
-- 326 tests backend (21 nouveaux) : ordre et reprise des morceaux, réécriture ffmpeg réelle d'un WebM Opus, décodeur ffmpeg alimenté par morceaux, découpage en phrases avec des mots horodatés, service `live` sur un vrai fichier, échec du direct sans perte de l'enregistrement ; liens avec un faux Internet (fichier, RSS, page web, redirection vers une adresse interne, boucle de redirections, entités XML, taille maximale), téléchargement par le worker et relance.
+- 334 tests backend (29 nouveaux, dont 8 pour les plateformes avec un faux yt-dlp) : ordre et reprise des morceaux, réécriture ffmpeg réelle d'un WebM Opus, décodeur ffmpeg alimenté par morceaux, découpage en phrases avec des mots horodatés, service `live` sur un vrai fichier, échec du direct sans perte de l'enregistrement ; liens avec un faux Internet (fichier, RSS, page web, redirection vers une adresse interne, boucle de redirections, entités XML, taille maximale), téléchargement par le worker et relance.
 - Sur la vraie pile GPU (données de test supprimées ensuite) :
   - enregistrement simulé, 33 s envoyées en 9 morceaux en temps réel : 11 lignes de direct, puis vidéo `.ogg` de 33 s transcrite par le grand modèle ;
   - dans Chromium, un faux micro (voix de synthèse injectée à la place de `getUserMedia`, jamais le vrai micro du poste) : première ligne à 7,5 s, 5 lignes à 25 s, puis analyse ;
-  - lien Wikimedia Commons (`Example.ogg`) téléchargé et analysé ; flux NPR News Now listé ; `http://ollama:11434` refusé ; page YouTube refusée avec l'explication.
+  - lien Wikimedia Commons (`Example.ogg`) téléchargé et analysé ; flux NPR News Now listé ; `http://ollama:11434` refusé ;
+  - YouTube, option désactivée : refusé avec le renvoi vers l'option ; activée : *Big Buck Bunny* (Blender Foundation, CC-BY) prévisualisé avec sa licence, audio de 10 min téléchargé et analysé (« Aucun contenu parlé détecté » : le film n'a pas de dialogues). Option remise à « désactivée » après le test.
 
 ## Limites
 
 - La transcription en direct ne concerne que les enregistrements faits dans Sténo, pas une réunion captée par un autre logiciel.
 - Un enregistrement interrompu ne peut pas être prolongé : on analyse ce qui a été reçu.
 - L'aperçu direct et la transcription finale peuvent se disputer le GPU si une longue analyse tourne en même temps : le petit modèle limite ce risque.
-- Import d'un lien : pas d'authentification (liens privés), pas de plateformes vidéo.
+- Import d'un lien : pas d'authentification (vidéos privées, comptes). Les plateformes peuvent bloquer yt-dlp du jour au lendemain.

@@ -18,7 +18,7 @@ from tests.test_upload import SuccessfulQueue
 @pytest.fixture
 def env(monkeypatch, tmp_path):
     session = make_session(tmp_path / "p8.db")
-    for module in (*MODULES, live):
+    for module in (*MODULES, live, url_import):
         monkeypatch.setattr(module, "SessionLocal", session)
     monkeypatch.setattr(main.settings, "data_dir", tmp_path / "data")
     for folder in ("uploads", "audio", "exports"):
@@ -56,6 +56,8 @@ def web(monkeypatch):
 
     monkeypatch.setattr(url_import, "_client", lambda: httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False))
     monkeypatch.setattr(url_import, "_resolve", lambda host: ["10.0.0.5"] if host.endswith(".internal") else ["93.184.215.14"])
+    # Video platforms are off unless a test turns them on (the `platforms` fixture).
+    monkeypatch.setattr(url_import, "platforms_enabled", lambda: False)
     return routes
 
 

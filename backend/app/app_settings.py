@@ -7,13 +7,16 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
 
 from .models import AppSetting
-from .schemas import BackupSettings, WatchFolderSettings
+from .schemas import BackupSettings, UrlImportSettings, WatchFolderSettings
 
 logger = logging.getLogger(__name__)
 
 WATCH_FOLDER = "watch_folder"
 BACKUPS = "backups"
-SECTIONS: dict[str, type[BaseModel]] = {WATCH_FOLDER: WatchFolderSettings, BACKUPS: BackupSettings}
+URL_IMPORT = "url_import"
+SECTIONS: dict[str, type[BaseModel]] = {
+    WATCH_FOLDER: WatchFolderSettings, BACKUPS: BackupSettings, URL_IMPORT: UrlImportSettings,
+}
 
 Model = TypeVar("Model", bound=BaseModel)
 

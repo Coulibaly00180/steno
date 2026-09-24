@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api, formatBytes, formatDuration } from "../lib/api";
 
 export type LinkItem = { url: string; title: string; detail: string; selected: boolean };
 type Preview =
   | { kind: "media"; url: string; title: string; filename: string; size_bytes: number | null; content_type: string | null }
-  | { kind: "feed"; title: string; episodes: { title: string; url: string; published: string | null; duration_seconds: number | null; size_bytes: number | null }[] };
+  | { kind: "platform"; url: string; title: string; duration_seconds: number | null; uploader: string | null; site: string; license: string | null }
+  | { kind: "feed"; title: string; site?: string; episodes: { title: string; url: string; published: string | null; duration_seconds: number | null; size_bytes: number | null }[] };
 
 const MAX_EPISODES_SHOWN = 30;
 
@@ -18,13 +20,20 @@ export default function LinkImport({ items, onItems, confirmed, onConfirmed, dis
   const [feedTitle, setFeedTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [platforms, setPlatforms] = useState(false);
+
+  useEffect(() => {
+    api<{ platforms: boolean }>("/settings/url-import").then(value => setPlatforms(value.platforms)).catch(() => setPlatforms(false));
+  }, []);
 
   async function inspect() {
     if (!url.trim() || busy) return;
     setBusy(true); setError(""); onItems([]); setFeedTitle("");
     try {
       const preview = await api<Preview>("/imports/url/preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: url.trim() }) });
-      if (preview.kind === "media") {
+      if (preview.kind === "platform") {
+        onItems([{ url: preview.url, title: preview.title, selected: true, detail: [preview.site, preview.uploader, preview.duration_seconds ? formatDuration(preview.duration_seconds).replace(/^00:/, "") : "", preview.license ? `licence : ${preview.license}` : ""].filter(Boolean).join(" · ") }]);
+      } else if (preview.kind === "media") {
         onItems([{ url: preview.url, title: preview.title, detail: [preview.filename, preview.size_bytes ? formatBytes(preview.size_bytes) : ""].filter(Boolean).join(" · "), selected: true }]);
       } else {
         setFeedTitle(preview.title);
@@ -44,7 +53,7 @@ export default function LinkImport({ items, onItems, confirmed, onConfirmed, dis
     <div className="link-form">
       <label htmlFor="link-url" className="field-label">Lien vers un fichier audio ou vidéo, ou flux RSS d&apos;un podcast</label>
       <div className="row"><input id="link-url" type="url" value={url} onChange={event => setUrl(event.target.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void inspect(); } }} placeholder="https://exemple.org/episode.mp3 ou https://exemple.org/podcast.rss" maxLength={2000} disabled={disabled} /><button type="button" className="btn" onClick={() => void inspect()} disabled={disabled || busy || !url.trim()}>{busy ? "Vérification…" : "Vérifier le lien"}</button></div>
-      <span className="field-hint">Les pages des plateformes vidéo (YouTube…) ne sont pas prises en charge : seuls les fichiers mis à disposition au téléchargement le sont.</span>
+      <span className="field-hint">{platforms ? "Les pages des plateformes vidéo (YouTube, Vimeo…) sont acceptées : seul l'audio est téléchargé." : <>Les pages des plateformes vidéo (YouTube…) demandent l&apos;option de <Link className="text-link" href="/settings#import-liens">Paramètres › Import de liens</Link>.</>}</span>
     </div>
     {error && <div className="error" role="alert">{error}</div>}
     {!!items.length && <>

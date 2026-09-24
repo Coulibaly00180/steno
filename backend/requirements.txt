@@ -14,3 +14,7 @@ sherpa-onnx==1.13.8
 python-docx==1.2.0
 reportlab==5.0.1
 defusedxml==0.7.1
+# Video platforms (optional, off by default; see app.url_import). YouTube needs a JavaScript
+# runtime: Deno, and the challenge scripts of yt-dlp-ejs. Update these when downloads start failing.
+yt-dlp[default]==2026.8.19
+deno==2.9.7
