@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { api } from "../lib/api";
+import { api, formatDuration } from "../lib/api";
 import { CUSTOM_PROMPT_MAX_CHARS, summaryLengthLabels, summaryLengths, wordBudget, type SummaryLength } from "../lib/analysis";
 import { Icon } from "./Icons";
 import TimestampText from "./TimestampText";
 
 export type Summary = { id: string; content_markdown: string; model: string; language?: string; template_id?: string | null; template_name?: string | null; summary_length?: string | null; created_at: string; edited_at?: string | null };
 type Template = { id: string; name: string; is_default: boolean };
+// n°3: the passage behind a line of the summary.
+type LineSource = { line: number; start_seconds: number; end_seconds: number; distance: number; supported: boolean; excerpt: string; cited_seconds: number | null; cited_matches: boolean | null };
+type Sources = { status: "ready" | "indexing"; lines: LineSource[] };
 
 const json = (method: string, body: unknown): RequestInit => ({ method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
@@ -34,11 +37,23 @@ export default function SummaryPanel({ videoId, summaries, duration, busy, outda
   const [regenerating, setRegenerating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [sources, setSources] = useState<Sources | null>(null);
+  const [showSources, setShowSources] = useState(true);
 
   // A new version appears after a regeneration: show it.
   const latest = summaries.at(-1);
   useEffect(() => { setSelectedId(null); }, [latest?.id]);
   const summary = summaries.find(item => item.id === selectedId) ?? latest;
+
+  useEffect(() => {
+    setSources(null);
+    if (!summary || editing) return;
+    let cancelled = false;
+    api<Sources>(`/videos/${videoId}/summaries/${summary.id}/sources`).then(result => { if (!cancelled) setSources(result); }).catch(() => { if (!cancelled) setSources(null); });
+    return () => { cancelled = true; };
+  }, [videoId, summary?.id, summary?.content_markdown, editing]);
+  const byLine = new Map((sources?.lines ?? []).map(source => [source.line, source]));
+  const unchecked = (sources?.lines ?? []).filter(source => !source.supported).length;
 
   async function save() {
     if (!summary) return;
@@ -56,6 +71,7 @@ export default function SummaryPanel({ videoId, summaries, duration, busy, outda
         ? <div className="field-control version-select"><select aria-label="Version du résumé" value={summary.id} onChange={event => { setSelectedId(event.target.value); setEditing(false); }}>{[...summaries].reverse().map((item, index) => <option key={item.id} value={item.id}>{index === 0 ? "Dernière version" : "Version"} · {versionLabel(item)}</option>)}</select><Icon name="chevron" size={14}/></div>
         : <p className="summary-meta">{summary.summary_length && <>Résumé {summaryLengthLabels[summary.summary_length] || summary.summary_length} · ~{wordBudget(duration, summary.summary_length as SummaryLength)} mots · </>}{summary.template_name ? `Template « ${summary.template_name} »` : summary.template_id ? "Template supprimé" : "Template par défaut"}{summary.edited_at && " · corrigé à la main"}</p>}
       <div className="row">
+        {sources?.status === "ready" && !editing && <label className="checkbox sources-toggle"><input type="checkbox" checked={showSources} onChange={event => setShowSources(event.target.checked)} /><span>Sources{unchecked ? ` · ${unchecked} à vérifier` : ""}</span></label>}
         {!editing && <button className="btn" onClick={() => { setDraft(summary.content_markdown); setEditing(true); }} disabled={busy} title={busy ? "Disponible à la fin du traitement en cours" : undefined}><Icon name="edit" size={14}/>Corriger</button>}
         <button className="btn" onClick={() => setRegenerating(true)} disabled={busy || editing} title={busy ? "Disponible à la fin du traitement en cours" : undefined}><Icon name="sparkle" size={14}/>Régénérer</button>
       </div>
@@ -64,7 +80,20 @@ export default function SummaryPanel({ videoId, summaries, duration, busy, outda
     {error && <div className="error" role="alert">{error}</div>}
     {editing
       ? <div className="summary-edit"><textarea value={draft} onChange={event => setDraft(event.target.value)} rows={18} aria-label="Contenu du résumé (Markdown)" /><div className="row"><button className="btn primary" onClick={save} disabled={saving || !draft.trim()}>{saving ? "Enregistrement…" : "Enregistrer"}</button><button className="btn" onClick={() => setEditing(false)} disabled={saving}>Annuler</button><span className="field-hint">Les exports sont mis à jour à l&apos;enregistrement.</span></div></div>
-      : <div className="content-panel summary-content"><TimestampText text={summary.content_markdown} duration={duration} onSeek={onSeek} /></div>}
+      : showSources && sources?.status === "ready"
+        ? <div className="content-panel summary-content with-sources">{summary.content_markdown.split("\n").map((line, index) => {
+          const source = byLine.get(index);
+          return <div className={`summary-line${source && !source.supported ? " unsupported" : ""}`} key={index}>
+            <span className="summary-line-text">{line ? <TimestampText text={line} duration={duration} onSeek={onSeek} /> : "\u00a0"}</span>
+            {source && <span className="line-source">
+              {source.supported
+                ? <button type="button" className="source-chip mono" onClick={() => onSeek?.(source.start_seconds)} disabled={!onSeek} title={`Passage qui traite de ce point (à relire pour les détails) : « ${source.excerpt} »`}>▸ {formatDuration(source.start_seconds)}</button>
+                : <button type="button" className="source-chip unchecked" onClick={() => onSeek?.(source.start_seconds)} disabled={!onSeek} title={`Aucun passage de la vidéo ne dit clairement cela. Le plus proche (${formatDuration(source.start_seconds)}) : « ${source.excerpt} »`}>à vérifier</button>}
+              {source.cited_matches === false && <span className="field-hint" title="L'horodatage écrit dans le résumé ne correspond pas au passage trouvé">horodatage à vérifier</span>}
+            </span>}
+          </div>;
+        })}</div>
+        : <div className="content-panel summary-content"><TimestampText text={summary.content_markdown} duration={duration} onSeek={onSeek} />{sources?.status === "indexing" && <p className="field-hint">Les sources de chaque ligne s&apos;afficheront à la fin de l&apos;indexation de la vidéo.</p>}</div>}
     {regenerating && <RegenerateDialog videoId={videoId} duration={duration} current={summary} onClose={() => setRegenerating(false)} onStarted={jobId => { setRegenerating(false); onJobStarted(jobId); }} />}
   </section>;
 }

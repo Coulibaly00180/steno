@@ -20,6 +20,16 @@ import numpy as np
 WINDOW_SECONDS = 600
 CUT_SEARCH_SECONDS = 15
 CUT_FRAME_SECONDS = 0.2
+# A word Whisper gives below this probability is shown as doubtful (n°1).
+# Measured on an 11-minute review (large-v3-turbo, 2026-09-24): 2.2 % of the
+# words below 0.5, among them real errors (« discounters » for Cdiscount);
+# 9 % below 0.8, too many to review. Short function words are never shown:
+# « Alors », « et », « on » came low there, and are never worth checking.
+DOUBT_PROBABILITY = 0.5
+_FUNCTION_WORDS = frozenset(
+    "alors mais donc et ou où on si va le la les un une des de du au aux en ce ça c ne pas je tu il elle nous vous ils elles "
+    "y a à est sont que qui quoi oui non bon ben euh hein voilà the a an and or of to is it so yes no".split()
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,17 +126,22 @@ def transcribe_windows(
     on_progress: Callable[[float], None] | None = None,
     window_seconds: float = WINDOW_SECONDS,
     heartbeat: Callable[[], None] | None = None,
+    doubts: list | None = None,
 ) -> tuple[list[tuple[float, float, str]], str | None]:
     """Transcribe window by window; return (start, end, text) rows and the language.
 
     The language found in the first window is imposed on the next ones, so that a
     passage in another language does not switch the whole transcript.
+
+    `doubts`: when given, word timings are asked for, and it receives one list per
+    row of its doubtful words, as [start, end, probability %] character ranges.
     """
     rows: list[tuple[float, float, str]] = []
     detected = language
     for offset, end, audio in iter_audio_windows(audio_path, window_seconds):
         segments, info = model.transcribe(
             audio, beam_size=beam_size, vad_filter=True, language=detected, initial_prompt=initial_prompt,
+            **({"word_timestamps": True} if doubts is not None else {}),
         )
         if detected is None:
             detected = getattr(info, "language", None)
@@ -136,8 +151,31 @@ def transcribe_windows(
             text = segment.text.strip()
             if text:
                 rows.append((offset + float(segment.start), offset + float(segment.end), text))
+                if doubts is not None:
+                    doubts.append(doubtful_words(segment, text))
                 if on_progress:
                     on_progress(offset + float(segment.end))
         if on_progress:
             on_progress(end)
     return rows, detected
+
+
+def doubtful_words(segment, text: str, threshold: float = DOUBT_PROBABILITY) -> list[list[int]]:
+    """[start, end, probability %] of the words of `text` Whisper was unsure of."""
+    found = []
+    cursor = 0
+    for word in getattr(segment, "words", None) or []:
+        token = (word.word or "").strip()
+        if not token:
+            continue
+        start = text.find(token, cursor)
+        if start < 0:
+            continue
+        cursor = start + len(token)
+        probability = float(getattr(word, "probability", 1.0) or 0.0)
+        bare = token.strip(".,;:!?…«»\"'()-").casefold()
+        if len(bare) < 2 or bare in _FUNCTION_WORDS:
+            continue
+        if probability < threshold:
+            found.append([start, cursor, round(probability * 100)])
+    return found

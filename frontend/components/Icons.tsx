@@ -1,6 +1,6 @@
 import type { ReactNode, SVGProps } from "react";
 
-type IconName = "home" | "library" | "template" | "system" | "settings" | "shield" | "sun" | "moon" | "upload" | "video" | "audio" | "close" | "chevron" | "arrow" | "more" | "download" | "trash" | "retry" | "chat" | "edit" | "sparkle" | "search" | "tag" | "mic" | "link" | "pause" | "stop" | "people" | "thumbUp" | "thumbDown" | "chip";
+type IconName = "home" | "library" | "template" | "system" | "settings" | "shield" | "sun" | "moon" | "upload" | "video" | "audio" | "close" | "chevron" | "arrow" | "more" | "download" | "trash" | "retry" | "chat" | "edit" | "sparkle" | "search" | "tag" | "mic" | "link" | "pause" | "stop" | "people" | "thumbUp" | "thumbDown" | "chip" | "check" | "mail";
 
 export function Icon({ name, size = 17, ...props }: SVGProps<SVGSVGElement> & { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
@@ -33,6 +33,8 @@ export function Icon({ name, size = 17, ...props }: SVGProps<SVGSVGElement> & { 
     thumbUp: <><path d="M7 11v9H4v-9Z"/><path d="M7 11l4-7a2 2 0 0 1 3 2l-1 4h5.5a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 17.3 20H7"/></>,
     thumbDown: <><path d="M7 13V4H4v9Z"/><path d="M7 13l4 7a2 2 0 0 0 3-2l-1-4h5.5a2 2 0 0 0 2-2.3l-1.2-6A2 2 0 0 0 17.3 4H7"/></>,
     chip: <><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2.5V6M15 2.5V6M9 18v3.5M15 18v3.5M2.5 9H6M2.5 15H6M18 9h3.5M18 15h3.5"/></>,
+    check: <><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="m8 12 3 3 5-6"/></>,
+    mail: <><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></>,
     sparkle: <path d="M12 3.5 13.8 9 19.5 10.8 13.8 12.6 12 18.5 10.2 12.6 4.5 10.8 10.2 9Z"/>,
     chat: <><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-5 4v-4.5a2.5 2.5 0 0 1-1-2Z"/><path d="M8 8h8M8 12h5"/></>,
   };

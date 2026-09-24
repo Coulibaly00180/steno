@@ -1,5 +1,5 @@
-from datetime import datetime, timezone
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Table, Text, UniqueConstraint, false, func, text
+from datetime import date, datetime, timezone
+from sqlalchemy import BigInteger, Boolean, Column, Date, DateTime, Float, ForeignKey, Index, Integer, String, Table, Text, UniqueConstraint, false, func, text
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
@@ -109,6 +109,9 @@ class TranscriptSegment(Base):
     speaker_id: Mapped[int | None] = mapped_column(
         ForeignKey("speakers.id", ondelete="SET NULL", name="fk_transcript_segments_speaker_id"), nullable=True, index=True
     )
+    # Words Whisper was unsure of (n°1): JSON [[start, end, probability %], …] in `text`;
+    # cleared when the line is corrected by hand.
+    doubts: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Speaker(Base):
@@ -160,6 +163,8 @@ class Summary(Base):
     content_markdown: Mapped[str] = mapped_column(Text)
     model: Mapped[str] = mapped_column(String(120))
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The source passage of each line (n°3), cached with the text and index it was computed for.
+    sources: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -297,6 +302,33 @@ class LiveSegment(Base):
     start_seconds: Mapped[float] = mapped_column(Float)
     end_seconds: Mapped[float] = mapped_column(Float)
     text: Mapped[str] = mapped_column(Text)
+
+
+class ActionItem(Base):
+    """An action or a decision of a video (n°5): found in its summary, or added by hand.
+
+    `edited`: changed by the user, so a new summary never replaces it.
+    """
+
+    __tablename__ = "action_items"
+    __table_args__ = (Index("ix_action_items_status_due", "status", "due_date"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    video_id: Mapped[str] = mapped_column(
+        ForeignKey("videos.id", ondelete="CASCADE", name="fk_action_items_video_id"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(16))
+    text: Mapped[str] = mapped_column(String(400))
+    owner: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    due_text: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="open", server_default="open")
+    start_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source: Mapped[str] = mapped_column(String(16), default="auto", server_default="auto")
+    edited: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class Entity(Base):

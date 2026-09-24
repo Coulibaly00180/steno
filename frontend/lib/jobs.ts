@@ -15,7 +15,7 @@ export const stageLabels: Record<string, string> = {
   QUEUED: "En attente", STARTING: "Démarrage", DOWNLOADING: "Téléchargement", EXTRACTING_AUDIO: "Extraction audio", TRANSCRIBING: "Transcription",
   DIARIZING: "Identification des intervenants", TRANSCRIBED: "Transcription terminée", TRANSLATING: "Traduction", SUMMARIZING_CHUNKS: "Résumé par blocs",
   SUMMARIZING_GROUPS: "Consolidation des blocs", SUMMARIZING_FINAL: "Résumé final", GENERATING_EXPORTS: "Génération des exports",
-  INDEXING: "Indexation pour les questions", EXTRACTING_ENTITIES: "Relevé des personnes et des dates", COMPACTING: "Conversion en audio seul",
+  INDEXING: "Indexation pour les questions", EXTRACTING_ENTITIES: "Relevé des personnes et des dates", EXTRACTING_ACTIONS: "Relevé des actions et décisions", COMPACTING: "Conversion en audio seul",
   COMPLETED: "Terminé", FAILED: "Échec", CANCELLED: "Annulé",
 };
 

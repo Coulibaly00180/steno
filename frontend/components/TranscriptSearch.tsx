@@ -7,6 +7,8 @@ export type TranscriptLine = {
   key: string; time?: string; start?: number; id?: number; text: string;
   // Speaker label and colour (n°8); shown when it changes from the previous line.
   speakerId?: number | null; speaker?: string; color?: string;
+  // Words Whisper was unsure of (n°1): [start, end, probability %] in `text`.
+  doubts?: number[][];
 };
 export type SpeakerOption = { id: number; label: string };
 type Match = { line: number; start: number; end: number };
@@ -24,6 +26,20 @@ function fold(text: string): { folded: string; origin: number[] } {
     for (let offset = 0; offset < piece.length; offset++) { folded += piece[offset]; origin.push(index); }
   }
   return { folded, origin };
+}
+
+/** The line's text with its doubtful words underlined (n°1). */
+function withDoubts(text: string, doubts: number[][] | undefined): ReactNode {
+  if (!doubts?.length) return text;
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  for (const [start, end, probability] of doubts) {
+    if (start < cursor || end > text.length) continue;
+    parts.push(text.slice(cursor, start), <span key={start} className="doubt" title={`Mot incertain : confiance ${probability} %`}>{text.slice(start, end)}</span>);
+    cursor = end;
+  }
+  parts.push(text.slice(cursor));
+  return <>{parts.map((part, index) => <Fragment key={index}>{part}</Fragment>)}</>;
 }
 
 function findMatches(lines: TranscriptLine[], query: string): { matches: Match[]; truncated: boolean } {
@@ -64,7 +80,21 @@ export default function TranscriptSearch({ lines, query, onQueryChange, empty, l
   const [draft, setDraft] = useState("");
   const [draftSpeaker, setDraftSpeaker] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  // n°1: the line of the doubt shown last, to go to the next one.
+  const [doubtLine, setDoubtLine] = useState(-1);
   const panel = useRef<HTMLDivElement>(null);
+  const doubtful = useMemo(() => lines.flatMap((line, index) => line.doubts?.length ? [index] : []), [lines]);
+  const doubtWords = useMemo(() => lines.reduce((total, line) => total + (line.doubts?.length ?? 0), 0), [lines]);
+
+  function nextDoubt() {
+    if (!doubtful.length) return;
+    const next = doubtful.find(index => index > doubtLine) ?? doubtful[0];
+    setDoubtLine(next);
+    setFollow(false);
+    const container = panel.current;
+    const row = container?.querySelector<HTMLElement>(`[data-line="${next}"]`);
+    if (container && row) container.scrollTo({ top: row.offsetTop - container.clientHeight / 3, behavior: "smooth" });
+  }
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(query), DEBOUNCE_MS);
@@ -116,6 +146,8 @@ export default function TranscriptSearch({ lines, query, onQueryChange, empty, l
       <span className="search-count mono" aria-live="polite">{counter}</span>
       <button type="button" className="icon-btn" onClick={() => move(-1)} disabled={!matches.length} aria-label="Résultat précédent">↑</button>
       <button type="button" className="icon-btn" onClick={() => move(1)} disabled={!matches.length} aria-label="Résultat suivant">↓</button>
+      {!!doubtful.length && <button type="button" className="btn small doubt-next" onClick={nextDoubt} title="Mots dont la transcription est incertaine : à vérifier en premier">Prochain doute <span className="mono">{doubtful.indexOf(doubtLine) + 1 || "–"}/{doubtful.length}</span></button>}
+      {!!doubtWords && <span className="field-hint doubt-count">{doubtWords} mot{doubtWords > 1 ? "s" : ""} incertain{doubtWords > 1 ? "s" : ""}</span>}
       {playing >= 0 && <label className="checkbox follow-toggle"><input type="checkbox" checked={follow} onChange={event => setFollow(event.target.checked)} /><span>Suivre la lecture</span></label>}
     </div>
     {toolbar}
@@ -136,11 +168,11 @@ export default function TranscriptSearch({ lines, query, onQueryChange, empty, l
           cursor = match.end;
           return [before, <mark key={index} data-match={index} className={index === active ? "active" : undefined}>{line.text.slice(match.start, match.end)}</mark>];
         });
-        return <p key={line.key} data-line={lineIndex} className={lineIndex === playing ? "playing" : undefined}>
+        return <p key={line.key} data-line={lineIndex} className={[lineIndex === playing ? "playing" : "", lineIndex === doubtLine ? "doubt-focus" : ""].filter(Boolean).join(" ") || undefined}>
           {line.time && (onSeek && line.start !== undefined
             ? <button type="button" className="line-time mono seek" onClick={() => onSeek(line)} title="Lire à partir d'ici">{line.time}</button>
             : <span className="line-time mono">{line.time}</span>)}
-          <span className="line-text">{line.speaker && line.speaker !== lines[lineIndex - 1]?.speaker && <b className="line-speaker" style={{ color: line.color }}>{line.speaker}</b>}{hits.length ? <>{parts.map((part, index) => <Fragment key={index}>{part}</Fragment>)}{line.text.slice(cursor)}</> : line.text}</span>
+          <span className="line-text">{line.speaker && line.speaker !== lines[lineIndex - 1]?.speaker && <b className="line-speaker" style={{ color: line.color }}>{line.speaker}</b>}{hits.length ? <>{parts.map((part, index) => <Fragment key={index}>{part}</Fragment>)}{line.text.slice(cursor)}</> : withDoubts(line.text, line.doubts)}</span>
           {onEdit && <button type="button" className="icon-btn line-edit-btn" aria-label={`Corriger la ligne ${line.time || lineIndex + 1}`} onClick={() => { setEditing(line.key); setDraft(line.text); setDraftSpeaker(line.speakerId ?? null); }}><Icon name="edit" size={13}/></button>}
         </p>;
       })}

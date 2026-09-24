@@ -75,6 +75,10 @@ Vérifier que le GPU est bien utilisé : `docker compose exec worker python -c "
 | Espace disque, règle des médias à l'import (`source_policy`), job `COMPACT` | `backend/app/storage.py`, `run_compact` et `_apply_source_policy` (`worker.py`) |
 | Service `scheduler` : dossier surveillé `data/inbox` et sauvegardes planifiées | `backend/app/scheduler.py`, `watch_folder.py`, `backups.py` ; import partagé avec le formulaire : `import_settings` et `create_import` (`main.py`) |
 | Restauration (service outil `restore`), archive portable de la bibliothèque | `backend/app/backups.py`, `backend/app/portable.py`, guide `docs/sauvegardes.md` |
+| Mots douteux (probabilité par mot, `transcript_segments.doubts`) | `doubtful_words` (`backend/app/transcription.py`), `frontend/components/TranscriptSearch.tsx` |
+| Résumé vérifiable (source de chaque ligne, « à vérifier ») | `backend/app/verification.py`, `/videos/{id}/summaries/{sid}/sources` (`main.py`), `SummaryPanel.tsx` |
+| Actions et décisions (extraction après le résumé, dates calculées par le code, CSV / .ics) | `backend/app/actions.py`, `_actions_after_summary` (`worker.py`), routes `/actions` (`main.py`), `ActionsPanel.tsx`, page `frontend/app/actions/` |
+| Note Obsidian, archive Obsidian de la bibliothèque, brouillon d'e-mail | `backend/app/notes.py`, `/videos/{id}/note.md`, `/videos/{id}/email.eml`, `/library/export/obsidian.zip` (`main.py`) |
 | Réglages modifiés depuis l'interface | `backend/app/app_settings.py` (table `app_settings`) |
 | Enregistrement depuis le navigateur (morceaux envoyés au fil de l'eau, `/recordings`) | `/recordings` dans `main.py`, `frontend/app/record/`, `frontend/lib/recorder.ts` |
 | Service `live` : transcription en direct d'un enregistrement (aperçu, petit modèle) | `backend/app/live.py` (`LiveDecoder`, `LiveTranscriber`), table `live_segments` |

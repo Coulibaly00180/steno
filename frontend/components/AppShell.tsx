@@ -11,6 +11,7 @@ const nav = [
   { href: "/record", label: "Enregistrer", icon: "mic" as const },
   { href: "/library", label: "Bibliothèque", icon: "library" as const },
   { href: "/ask", label: "Questions", icon: "chat" as const },
+  { href: "/actions", label: "Actions", icon: "check" as const },
   { href: "/entities", label: "Personnes et dates", icon: "people" as const },
   { href: "/templates", label: "Templates", icon: "template" as const },
   { href: "/models", label: "Modèles", icon: "chip" as const },

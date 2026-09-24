@@ -36,7 +36,7 @@ from .speakers import apply_turns, build_transcript, speaker_labels
 from .storage import StorageError, can_compact, compact_to_audio, delete_media
 from .transcription import StallWatchdog, transcribe_windows
 from .utils import ffprobe_duration, split_text, timestamp
-from . import ai_models, entities, url_import
+from . import actions, ai_models, entities, url_import
 
 _whisper_model = None
 
@@ -555,6 +555,31 @@ def translate_transcript(job_id: str, video_id: str, transcript: str, target_lan
     return translated
 
 
+def extract_video_actions(video_id: str) -> int:
+    """Actions and decisions of the latest summary (n°5); returns how many were added."""
+    with SessionLocal() as db:
+        video = db.get(Video, video_id)
+        if not video or not video.summaries:
+            return 0
+        summary = video.summaries[-1].content_markdown
+    found = actions.extract(video, summary)
+    with SessionLocal() as db:
+        added = actions.replace_automatic(db, video_id, found)
+        db.commit()
+    return added
+
+
+def _actions_after_summary(job_id: str, video_id: str) -> None:
+    """A bonus of the summary: a failure never fails the video (the summary keeps its own list)."""
+    set_job(job_id, stage="EXTRACTING_ACTIONS", progress=94)
+    try:
+        extract_video_actions(video_id)
+    except JobCancelled:
+        raise
+    except Exception:
+        logger.warning("Action extraction failed for video %s", video_id, exc_info=True)
+
+
 def _write_exports(job_id: str, video_id: str) -> None:
     set_job(job_id, stage="GENERATING_EXPORTS", progress=96)
     with SessionLocal() as db:
@@ -971,6 +996,7 @@ def run_pipeline(job_id: str) -> None:
                 on_stall=lambda: mark_interrupted_job(job_id, ERROR_TRANSCRIPTION_STALLED),
             )
             # Window by window: decoding a whole 6-hour file at once needs ~5 GB of RAM.
+            doubts: list = []
             with watchdog:
                 rows, detected = transcribe_windows(
                     model,
@@ -980,6 +1006,7 @@ def run_pipeline(job_id: str) -> None:
                     beam_size=settings.whisper_beam_size,
                     on_progress=report,
                     heartbeat=watchdog.beat,
+                    doubts=doubts,
                 )
             release_whisper_model()
             transcript = "\n".join(f"[{timestamp(start)}] {text}" for start, _, text in rows)
@@ -994,8 +1021,11 @@ def run_pipeline(job_id: str) -> None:
                 video.transcript_text = transcript
                 db.execute(delete(TranscriptSegment).where(TranscriptSegment.video_id == video.id))
                 db.add_all([
-                    TranscriptSegment(video_id=video.id, start_seconds=s, end_seconds=e, text=t)
-                    for s, e, t in rows
+                    TranscriptSegment(
+                        video_id=video.id, start_seconds=s, end_seconds=e, text=t,
+                        doubts=json.dumps(words) if words else None,
+                    )
+                    for (s, e, t), words in zip(rows, doubts or [[]] * len(rows))
                 ])
                 db.commit()
 
@@ -1022,6 +1052,7 @@ def run_pipeline(job_id: str) -> None:
             vocabulary=prompt_vocabulary,
             language_code=target_language or source_language,
         )
+        _actions_after_summary(job_id, video_id)
         _write_exports(job_id, video_id)
         _index_after_pipeline(job_id, video_id)
 
@@ -1181,6 +1212,7 @@ def run_summary(job_id: str) -> None:
             vocabulary=vocabulary,
             language_code=target_language or source_language,
         )
+        _actions_after_summary(job_id, video_id)
         _write_exports(job_id, video_id)
         set_job(job_id, stage="COMPLETED", status="COMPLETED", progress=100)
     except JobCancelled:

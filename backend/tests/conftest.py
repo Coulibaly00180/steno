@@ -31,8 +31,11 @@ def offline_embeddings(monkeypatch):
             on_batch(len(texts), len(texts))
         return [fake_embedding(text) for text in texts]
 
+    from app import verification
+
     monkeypatch.setattr(worker, "embed_texts", embed)
     monkeypatch.setattr(main, "embed_texts", embed)
+    monkeypatch.setattr(verification, "embed_texts", embed)
     return calls
 
 
@@ -43,6 +46,14 @@ def no_entity_jobs(monkeypatch):
     monkeypatch.setattr(worker, "enqueue_entities_job", queued.append)
     monkeypatch.setattr(main, "enqueue_entities_job", queued.append)
     return queued
+
+
+@pytest.fixture(autouse=True)
+def no_action_llm(monkeypatch):
+    """Actions and decisions (n°5) are asked to the LLM after each summary: none in the tests, unless one says so."""
+    from app import actions
+
+    monkeypatch.setattr(actions, "extract", lambda video, summary: [])
 
 
 @pytest.fixture

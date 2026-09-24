@@ -1,6 +1,8 @@
-from datetime import datetime
+import json
+from datetime import date, datetime
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class TemplateCreate(BaseModel):
@@ -53,6 +55,16 @@ class SegmentOut(BaseModel):
     end_seconds: float
     text: str
     speaker_id: int | None = None
+    # Doubtful words (n°1): [start, end, probability %] in `text`.
+    doubts: list[list[int]] = []
+
+    @field_validator("doubts", mode="before")
+    @classmethod
+    def _stored_json(cls, value):
+        """Stored as JSON text (TranscriptSegment.doubts), or absent."""
+        if not value:
+            return []
+        return json.loads(value) if isinstance(value, str) else value
 
 
 class SpeakerOut(BaseModel):
@@ -405,3 +417,17 @@ class EntityUpdateIn(BaseModel):
 
 class EntityMergeIn(BaseModel):
     into: int
+
+
+class ActionIn(BaseModel):
+    """An action or decision (n°5), created by hand or edited: only the fields sent change."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    kind: Literal["action", "decision"] | None = None
+    text: str | None = Field(default=None, max_length=400)
+    owner: str | None = Field(default=None, max_length=80)
+    due_text: str | None = Field(default=None, max_length=80)
+    due_date: date | None = None
+    status: Literal["open", "done", "dropped"] | None = None
+    start_seconds: float | None = Field(default=None, ge=0)

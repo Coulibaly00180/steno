@@ -103,6 +103,7 @@ export default function BackupsPanel() {
     <div className="row archive-actions">
       <label className="checkbox"><input type="checkbox" checked={withMedia} onChange={event => setWithMedia(event.target.checked)} /><span>Inclure les médias <span className="muted">(archive bien plus lourde)</span></span></label>
       <a className="btn" href={`${API}/library/export${withMedia ? "?media=true" : ""}`}>Exporter la bibliothèque</a>
+      <a className="btn" href={`${API}/library/export/obsidian.zip`} title="Un dossier de notes Markdown : une par vidéo, une par personne, organisation, lieu ou date">Exporter pour Obsidian (.zip)</a>
       <input ref={fileInput} type="file" hidden accept=".tar,application/x-tar" onChange={event => void importArchive(event.target.files?.[0])} />
       <button type="button" className="btn" onClick={() => fileInput.current?.click()} disabled={busy !== ""}>{busy === "import" ? (importProgress != null && importProgress < 100 ? `Envoi… ${importProgress} %` : "Import en cours…") : "Importer une archive"}</button>
     </div>
