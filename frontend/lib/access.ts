@@ -12,5 +12,13 @@ export const accessStatus = () => api<AccessStatus>("/auth/status");
 
 /** A path inside Sténo to come back to after the login (never another site). */
 export function safeNext(value: string | null) {
-  return value && value.startsWith("/") && !value.startsWith("//") && !value.startsWith("/login") ? value : "/";
+  // Browsers read "/\evil.example" as "//evil.example": resolve the path and keep it only on this origin.
+  if (!value || !/^\/[^/\\]/.test(value)) return "/";
+  try {
+    const target = new URL(value, window.location.origin);
+    if (target.origin !== window.location.origin || target.pathname.startsWith("/login")) return "/";
+    return `${target.pathname}${target.search}${target.hash}`;
+  } catch {
+    return "/";
+  }
 }
