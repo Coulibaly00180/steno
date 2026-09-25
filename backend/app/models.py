@@ -101,6 +101,8 @@ class ProcessingJob(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Each stage reached and when, as JSON [[stage, epoch seconds], ...] (performance tracking).
+    stage_times: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class TranscriptSegment(Base):
@@ -508,6 +510,9 @@ class JobDuration(Base):
     elapsed_seconds: Mapped[float] = mapped_column(Float)
     translated: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Seconds per stage (JSON {stage: seconds}) and the wait in the queue before it started.
+    stages: Mapped[str | None] = mapped_column(Text, nullable=True)
+    queued_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class Passage(Base):

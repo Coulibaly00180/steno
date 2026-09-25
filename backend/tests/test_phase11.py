@@ -12,6 +12,7 @@ from app.models import ActionItem, MeetingSeries, ProcessingJob, QualityRun, Sum
 from app.schemas import AccessSettings
 from tests.test_phase4 import add_video
 from tests.test_phase7 import MODULES, make_session
+from app.routes import access as access_routes, clips as clips_routes, quality as quality_routes
 from tests.test_upload import SuccessfulQueue
 
 REAL_LOAD = auth.load
@@ -34,6 +35,7 @@ def env(monkeypatch, tmp_path):
         (tmp_path / "data" / folder).mkdir(parents=True)
     monkeypatch.setattr(main, "Queue", SuccessfulQueue)
     monkeypatch.setattr(quality, "Queue", SuccessfulQueue)
+    monkeypatch.setattr(clips_routes, "Queue", SuccessfulQueue)
     return session
 
 
@@ -427,7 +429,7 @@ def test_a_run_starts_by_itself_when_prompts_or_models_change(env, monkeypatch):
         db.get(QualityRun, second).status = "COMPLETED"
         db.commit()
     monkeypatch.setattr(quality.ai_models, "llm_model", lambda: "gemma3:12b")
-    main.put_quality_settings(main.QualitySettings(auto=False))
+    quality_routes.put_quality_settings(quality_routes.QualitySettings(auto=False))
     assert quality.maybe_schedule() is None
 
 
@@ -518,7 +520,7 @@ def guarded(env, monkeypatch):
     monkeypatch.setattr(auth, "cached", lambda: None)
     auth.forget()
     redis = FakeRedis()
-    monkeypatch.setattr(main.Redis, "from_url", lambda *args, **kwargs: redis)
+    monkeypatch.setattr(access_routes.Redis, "from_url", lambda *args, **kwargs: redis)
     yield redis
     auth.forget()
 
@@ -583,7 +585,7 @@ def test_the_network_page(client, env, monkeypatch):
     info = client.get("/network").json()
     assert info == {"https_ready": False, "address": "192.168.1.20", "port": 8443, "url": "https://192.168.1.20:8443"}
     assert client.get("/network/certificate").status_code == 404
-    certificate = main.settings.data_dir / main.HTTPS_ROOT_CERTIFICATE
+    certificate = main.settings.data_dir / access_routes.HTTPS_ROOT_CERTIFICATE
     certificate.parent.mkdir(parents=True)
     certificate.write_text("-----BEGIN CERTIFICATE-----")
     assert client.get("/network").json()["https_ready"]

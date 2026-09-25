@@ -59,6 +59,16 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+/** Like api(), with the response headers (the library's total is in X-Total-Count). */
+export async function apiWithHeaders<T>(path: string, init?: RequestInit): Promise<{ data: T; headers: Headers }> {
+  const res = await fetch(`${API}${path}`, { ...init, cache: "no-store" });
+  if (!res.ok) {
+    if (res.status === 401) goToLogin();
+    throw await responseError(res);
+  }
+  return { data: await res.json() as T, headers: res.headers };
+}
+
 export function formatDuration(seconds: number) {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);

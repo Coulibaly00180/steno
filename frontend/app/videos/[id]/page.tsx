@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { API, api, formatDuration } from "../../../lib/api";
 import { Icon } from "../../../components/Icons";
@@ -8,16 +8,15 @@ import MediaPlayer from "../../../components/MediaPlayer";
 import ActionsPanel from "../../../components/ActionsPanel";
 import ClipsPanel, { type ClipRange } from "../../../components/ClipsPanel";
 import { SeriesBar, SeriesChanges } from "../../../components/SeriesPanel";
-import AnswerFeedback from "../../../components/AnswerFeedback";
 import GlossarySuggestions from "../../../components/GlossarySuggestions";
 import ReplaceBar from "../../../components/ReplaceBar";
 import SpeakersPanel, { speakerColor, type Speaker } from "../../../components/SpeakersPanel";
 import SummaryPanel, { type Summary } from "../../../components/SummaryPanel";
 import TagEditor from "../../../components/TagEditor";
-import TimestampText from "../../../components/TimestampText";
+import VideoChat from "../../../components/VideoChat";
+import VideoExports from "../../../components/VideoExports";
 import TranscriptSearch, { type TranscriptLine } from "../../../components/TranscriptSearch";
 import VideoEntities from "../../../components/VideoEntities";
-import { ChatError, streamChat, type ChatMessage } from "../../../lib/chat";
 import { TERMINAL_STATUSES as TERMINAL, cancelJob, queueText, stageLabels as stages, type Job } from "../../../lib/jobs";
 import { useJobNotifications } from "../../../lib/notifications";
 
@@ -56,15 +55,6 @@ export default function VideoPage() {
   const [deleting, setDeleting] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [sseAttempt, setSseAttempt] = useState(0);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [question, setQuestion] = useState("");
-  const [asking, setAsking] = useState(false);
-  const [chatLoaded, setChatLoaded] = useState(false);
-  // Question being answered and the answer received so far (n°16).
-  const [pending, setPending] = useState<{ question: string; answer: string } | null>(null);
-  const chatAbort = useRef<AbortController | null>(null);
-  // What the DOCX/PDF report carries as its annex (n°20).
-  const [annex, setAnnex] = useState<"original" | "translation" | "none">("original");
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   // One search per tab, kept when switching tabs (F-3.7).
@@ -130,18 +120,6 @@ export default function VideoPage() {
     return () => { cancelled = true; window.clearInterval(interval); };
   }, [effectiveJobId, loadVideo]);
 
-  async function loadChat() {
-    try { setChatMessages(await api<ChatMessage[]>(`/videos/${id}/chat/messages`)); setChatLoaded(true); setError(""); }
-    catch (reason) { setError(String(reason)); }
-  }
-  // The answer streams in: the history is loaded once, no polling.
-  useEffect(() => {
-    if (tab !== "chat" || !video?.transcript_text) return;
-    void loadChat();
-  }, [tab, video?.transcript_text, id]);
-  // Leaving the page stops the generation (nothing is saved for an unfinished answer).
-  useEffect(() => () => chatAbort.current?.abort(), []);
-
   function notify(message: string) { setToast(message); window.setTimeout(() => setToast(""), 2600); }
 
   async function deleteVideo() {
@@ -154,26 +132,6 @@ export default function VideoPage() {
     setRetrying(true); setError("");
     try { const retried = await api<Job>(`/videos/${id}/retry`, { method: "POST" }); setQueryJobId(retried.id); setJob(retried); await loadVideo(); router.replace(`/videos/${id}?job=${retried.id}`); }
     catch (reason) { setError(String(reason)); setRetrying(false); }
-  }
-
-  async function askQuestion(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const value = question.trim(); if (!value || asking) return;
-    setAsking(true); setError(""); setPending({ question: value, answer: "" }); setQuestion("");
-    const controller = new AbortController(); chatAbort.current = controller;
-    try {
-      const saved = await streamChat(id, value, text => setPending(current => current && { ...current, answer: current.answer + text }), controller.signal);
-      setChatMessages(current => [...current, ...saved]);
-    } catch (reason) {
-      if (controller.signal.aborted) return;
-      if (reason instanceof ChatError && reason.saved) {
-        // What was written is kept, flagged as interrupted.
-        await loadChat();
-        setError("La réponse a été interrompue ; ce qui a été écrit est conservé.");
-      } else {
-        // Nothing was saved: the question goes back into the box.
-        setError(reason instanceof Error ? reason.message : String(reason)); setQuestion(value);
-      }
-    } finally { setPending(null); setAsking(false); }
   }
 
   async function cancelProcessing() {
@@ -276,11 +234,11 @@ export default function VideoPage() {
       <TranscriptSearch label="la traduction" lines={translationLines} query={translationQuery} onQueryChange={setTranslationQuery} empty="Aucune traduction demandée." />
     </>}
 
-    {tab === "chat" && <section className="chat card">{!!chatMessages.length && <a className="btn small chat-export" href={`${API}/videos/${video.id}/chat/export`}><Icon name="download" size={12}/>Exporter (.md)</a>}<p className="chat-intro">Posez une question sur le contenu de cette vidéo. Les réponses s’appuient uniquement sur sa transcription{video.chat_mode === "passages" ? ", dont les passages les plus proches de votre question sont retrouvés dans toute la vidéo" : ""}.</p>{video.chat_mode === "partial" && <div className="status-banner" role="status"><p>Indexation de cette longue vidéo en cours en arrière-plan : en attendant, les réponses ne portent que sur le début de la transcription.</p></div>}{!video.transcript_text ? <p className="muted">Le chat sera disponible dès la fin de la transcription.</p> : <><div className="chat-history" aria-live="polite">{!chatMessages.length && !pending && chatLoaded && <p className="muted">Aucune question pour le moment.</p>}{chatMessages.map(message => <article className={`chat-message ${message.role}`} key={message.id}><b>{message.role === "user" ? "Vous" : "Assistant"}</b><div>{message.role === "assistant" ? <TimestampText text={message.content} duration={video.duration_seconds} onSeek={canPlay ? seek : undefined} /> : message.content}</div>{message.interrupted && <p className="interrupted-note">Réponse interrompue : le début est conservé. Reposez la question pour l&apos;obtenir en entier.</p>}{message.role === "assistant" && <AnswerFeedback path={`/videos/${video.id}/chat/messages/${message.id}/feedback`} initial={message.feedback} />}</article>)}{pending && <><article className="chat-message user"><b>Vous</b><div>{pending.question}</div></article><article className="chat-message assistant" aria-busy="true"><b>Assistant</b><div>{pending.answer ? <TimestampText text={pending.answer} duration={video.duration_seconds} onSeek={canPlay ? seek : undefined} /> : <span className="muted typing">Réflexion…</span>}</div></article></>}</div><form className="chat-form" onSubmit={askQuestion}><label htmlFor="video-question">Votre question</label><textarea id="video-question" value={question} onChange={event => setQuestion(event.target.value)} maxLength={4000} placeholder="Ex. Quel point important est abordé à la fin ?" disabled={asking}/><button className="btn primary" disabled={asking || !question.trim()}>{asking ? "Réponse en cours…" : "Poser la question"}</button></form></>}</section>}
+    <VideoChat videoId={video.id} active={tab === "chat"} hasTranscript={!!video.transcript_text} chatMode={video.chat_mode} duration={video.duration_seconds} onSeek={canPlay ? seek : undefined} onError={setError} />
 
     {completed && canPlay && <ClipsPanel videoId={video.id} duration={video.duration_seconds} isAudio={video.media_kind === "audio" || !video.source_available} hasTranslation={!!video.translated_text} range={clipRange} currentTime={() => mediaRef.current ? mediaRef.current.currentTime : null} />}
 
-    {completed && <div className="row exports"><a className="btn primary" href={`${API}/videos/${id}/exports/report.docx?transcript=${annex}`}><Icon name="download" size={14}/>Compte-rendu .docx</a><a className="btn" href={`${API}/videos/${id}/exports/report.pdf?transcript=${annex}`}><Icon name="download" size={14}/>Compte-rendu .pdf</a><label className="annex-choice">Annexe <select value={annex} onChange={event => setAnnex(event.target.value as typeof annex)} aria-label="Transcription jointe au compte-rendu"><option value="original">transcription</option>{video.translated_text && <option value="translation">traduction{video.translation_outdated ? " (avant correction)" : ""}</option>}<option value="none">aucune</option></select></label><a className="btn" href={`${API}/videos/${id}/exports/summary.md`}>Résumé .md</a><a className="btn" href={`${API}/videos/${id}/note.md`} title="Note Markdown pour Obsidian : métadonnées, résumé, actions à cocher, liens vers les personnes">Note Obsidian .md</a><a className="btn" href={`${API}/videos/${id}/email.eml`} title="S'ouvre dans Outlook ou Thunderbird comme un nouveau message à envoyer"><Icon name="mail" size={14}/>Brouillon d&apos;e-mail</a><a className="btn" href={`${API}/videos/${id}/exports/transcript.txt`}><Icon name="download" size={14}/>Transcript .txt</a><a className="btn" href={`${API}/videos/${id}/exports/transcript.srt`}>Sous-titres .srt</a><a className="btn" href={`${API}/videos/${id}/exports/transcript.vtt`}>Sous-titres .vtt</a>{!!video.chapters.length && <a className="btn" href={`${API}/videos/${id}/exports/chapters.txt`}>Chapitres .txt</a>}{video.translated_text && <><a className="btn" href={`${API}/videos/${id}/exports/translation.txt`}>Traduction .txt</a><a className="btn" href={`${API}/videos/${id}/exports/translation.srt`}>Sous-titres traduits .srt</a><a className="btn" href={`${API}/videos/${id}/exports/translation.vtt`}>Sous-titres traduits .vtt</a></>}<a className="btn" href={`${API}/videos/${id}/exports/metadata.json`}>Metadata .json</a></div>}
+    {completed && <VideoExports videoId={video.id} translation={!!video.translated_text} translationOutdated={video.translation_outdated} chapters={!!video.chapters.length} />}
 
     {confirmCancel && <div className="modal-backdrop" role="dialog" aria-modal="true"><div className="modal"><h2>Annuler ce traitement ?</h2><p>{job?.kind === "SUMMARY" ? "La génération du nouveau résumé s’arrête ; le résumé actuel est conservé." : "Le travail en cours est abandonné. Vous pourrez relancer l’analyse plus tard."}</p><div className="modal-actions"><button className="btn" onClick={() => setConfirmCancel(false)} disabled={cancelling}>Continuer</button><button className="btn primary" style={{ background: "var(--danger)", borderColor: "var(--danger)" }} onClick={() => void cancelProcessing()} disabled={cancelling}>{cancelling ? "Annulation…" : "Annuler le traitement"}</button></div></div></div>}
     {confirmDelete && <div className="modal-backdrop" role="dialog" aria-modal="true"><div className="modal"><h2>Supprimer cette analyse ?</h2><p>Le fichier source, la transcription, le résumé et l’historique du chat seront supprimés définitivement.</p><div className="modal-actions"><button className="btn" onClick={() => setConfirmDelete(false)} disabled={deleting}>Annuler</button><button className="btn primary" style={{ background: "var(--danger)", borderColor: "var(--danger)" }} onClick={deleteVideo} disabled={deleting}>{deleting ? "Suppression…" : "Supprimer"}</button></div></div></div>}

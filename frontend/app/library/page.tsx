@@ -82,7 +82,8 @@ export default function LibraryPage() {
     return params.toString();
   }, [debouncedSearch, status, language, period, tag, entity]);
 
-  const { videos, error, reload } = useVideoList(ready ? query : null);
+  const { videos, total, error, reload, loadMore, hasMore, loadingMore } = useVideoList(ready ? query : null);
+  const count = total ?? videos?.length ?? 0;
 
   async function loadTags() {
     try { setTags(await api<TagCount[]>("/tags")); } catch { /* the tag filter is optional */ }
@@ -135,7 +136,7 @@ export default function LibraryPage() {
     {entity && <div className="active-filter"><span>Vidéos citant <Link className="text-link" href={`/entities/${entity}`}>{entityName || "cette fiche"}</Link></span><button type="button" className="icon-btn" aria-label="Retirer ce filtre" onClick={() => set({ entity: "", entityName: "" })}><Icon name="close" size={12}/></button></div>}
     {error && <div className="error">{error}</div>}
     {notice && <p className="success-note" role="status">{notice}</p>}
-    <div className="section-heading"><h2 className="section-title">{videos === null ? "Chargement…" : `${videos.length} analyse${videos.length > 1 ? "s" : ""}${filtered ? " trouvée" + (videos.length > 1 ? "s" : "") : ""}`}</h2><div className="row">
+    <div className="section-heading"><h2 className="section-title">{videos === null ? "Chargement…" : `${count} analyse${count > 1 ? "s" : ""}${filtered ? " trouvée" + (count > 1 ? "s" : "") : ""}`}</h2><div className="row">
       {!!videos?.some(video => video.status === "COMPLETED") && <Link className="btn" href={`/ask${query ? `?${query}` : ""}`}><Icon name="chat" size={14}/>{filtered ? "Questions sur ces vidéos" : "Questions sur la bibliothèque"}</Link>}
       {filtered && !activeCollection && (saving
         ? <input className="rename-input" placeholder="Nom de la collection" maxLength={80} autoFocus aria-label="Nom de la collection" onBlur={event => void saveCollection(event.target.value)} onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setSaving(false); }} />
@@ -144,5 +145,6 @@ export default function LibraryPage() {
       <button className="btn" onClick={() => { void reload(); void loadTags(); }}>Actualiser</button>
     </div></div>
     {videos !== null && <VideoTable videos={videos} onChanged={async () => { await reload(); await loadTags(); }} onTagClick={value => set({ tag: value })} empty={filtered ? "Aucune analyse ne correspond à ces critères." : "Aucune analyse pour le moment."}/>}
+    {hasMore && <div className="load-more"><button type="button" className="btn" onClick={loadMore} disabled={loadingMore}>{loadingMore ? "Chargement…" : `Afficher plus (${videos?.length} sur ${count})`}</button></div>}
   </div>;
 }

@@ -38,7 +38,7 @@ from .storage import StorageError, can_compact, compact_to_audio, delete_media
 from .gpu_slot import transcription_slot
 from .transcription import StallWatchdog, transcribe_windows
 from .utils import ffprobe_duration, split_text, timestamp
-from . import actions, ai_models, clips, entities, url_import
+from . import actions, ai_models, clips, entities, stage_times, url_import
 
 _whisper_model = None
 
@@ -112,12 +112,15 @@ def _record_duration(db, job: ProcessingJob) -> None:
         return
     elapsed = (_aware(job.finished_at) - _aware(job.started_at)).total_seconds()
     if elapsed > 0:
+        stages = stage_times.durations(job.stage_times, _aware(job.finished_at))
         db.add(JobDuration(
             kind=job.kind or "FULL",
             media_seconds=video.duration_seconds,
             elapsed_seconds=elapsed,
             translated=bool(video.target_language),
             finished_at=job.finished_at,
+            stages=json.dumps(stages) if stages else None,
+            queued_seconds=max(0.0, (_aware(job.started_at) - _aware(job.created_at)).total_seconds()) if job.created_at else None,
         ))
 
 
@@ -145,6 +148,8 @@ def set_job(job_id: str, *, stage: str | None = None, status: str | None = None,
             if status not in JOB_TRANSITIONS.get(current_status, set()):
                 return False
         if stage is not None:
+            if stage != job.stage:
+                job.stage_times = stage_times.append(job.stage_times, stage, now())
             job.stage = stage
         if status is not None:
             job.status = status
@@ -178,6 +183,7 @@ def _start_job(job_id: str) -> tuple[bool, str | None]:
         job.status = "RUNNING"
         job.progress = 1
         job.started_at = now()
+        job.stage_times = stage_times.append(None, "STARTING", job.started_at)
         db.commit()
         return True, job.video_id
 

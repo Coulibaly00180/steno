@@ -29,7 +29,12 @@ from app.schemas import BackupSettings, WatchFolderSettings
 from tests.test_upload import FailingQueue, SuccessfulQueue
 
 NOW = datetime(2026, 9, 23, 12, 0, tzinfo=timezone.utc)
-MODULES = (main, worker, storage, backups, watch_folder, portable)
+from app.routes import access as access_routes, actions as actions_routes, clips as clips_routes  # noqa: E402
+from app.routes import quality as quality_routes, series as series_routes  # noqa: E402
+
+# Every module that opens its own database session: the tests give them all the test database.
+MODULES = (main, worker, storage, backups, watch_folder, portable,
+           access_routes, actions_routes, clips_routes, quality_routes, series_routes)
 
 
 def make_session(path: Path):

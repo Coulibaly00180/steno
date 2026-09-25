@@ -7,6 +7,7 @@ import { ActionRow, type ActionItem } from "../../components/ActionsPanel";
 
 const statuses = [{ value: "open", label: "À faire" }, { value: "done", label: "Faites" }, { value: "dropped", label: "Abandonnées" }, { value: "", label: "Toutes" }];
 const SEARCH_DELAY_MS = 250;
+const PAGE = 200;
 
 /** n°5: every action and decision of the library, the soonest deadlines first. */
 export default function ActionsPage() {
@@ -17,6 +18,10 @@ export default function ActionsPage() {
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<ActionItem[] | null>(null);
   const [owners, setOwners] = useState<string[]>([]);
+  const [total, setTotal] = useState(0);
+  // Page by page: a library of thousands of meetings has thousands of actions.
+  const [limit, setLimit] = useState(PAGE);
+  useEffect(() => { setLimit(PAGE); }, [status, kind, owner, query]);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -30,9 +35,10 @@ export default function ActionsPage() {
     if (kind) params.set("kind", kind);
     if (owner) params.set("owner", owner);
     if (query) params.set("q", query);
-    try { const result = await api<{ items: ActionItem[]; owners: string[] }>(`/actions?${params}`); setItems(result.items); setOwners(result.owners); setError(""); }
+    params.set("limit", String(limit));
+    try { const result = await api<{ items: ActionItem[]; owners: string[]; total: number }>(`/actions?${params}`); setItems(result.items); setOwners(result.owners); setTotal(result.total); setError(""); }
     catch (reason) { setError(String(reason)); }
-  }, [status, kind, owner, query]);
+  }, [status, kind, owner, query, limit]);
   useEffect(() => { void load(); }, [load]);
 
   const exportQuery = new URLSearchParams({ ...(status ? { status } : {}), ...(kind ? { kind } : {}) }).toString();
@@ -49,5 +55,6 @@ export default function ActionsPage() {
     {error && <div className="error">{error}</div>}
     {items !== null && !items.length && <div className="empty-state">{kind === "action" && status === "open" && !query && !owner ? "Rien à faire pour le moment." : "Aucun élément ne correspond."}</div>}
     {!!items?.length && <ul className="action-list card">{items.map(item => <ActionRow key={item.id} item={item} onChanged={() => void load()} showVideo />)}</ul>}
+    {!!items && items.length < total && <div className="load-more"><button type="button" className="btn" onClick={() => setLimit(value => Math.min(1000, value + PAGE))} disabled={limit >= 1000}>{limit >= 1000 ? `${items.length} affichées sur ${total} : affinez la recherche` : `Afficher plus (${items.length} sur ${total})`}</button></div>}
   </div>;
 }

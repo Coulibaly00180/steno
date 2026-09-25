@@ -86,6 +86,8 @@ export default function AskPage() {
     setParams(search);
     const query = new URLSearchParams(search);
     query.set("status", "COMPLETED");
+    // Every video the question may cover (the library chat reads at most 500).
+    query.set("limit", "500");
     api<VideoSummary[]>(`/videos?${query}`).then(setVideos).catch(reason => setError(String(reason)));
     const entity = search.get("entity");
     if (entity) api<{ name: string }>(`/entities/${entity}`).then(found => setEntityName(found.name)).catch(() => setEntityName(""));

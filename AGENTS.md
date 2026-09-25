@@ -56,12 +56,13 @@ Vérifier que le GPU est bien utilisé : `docker compose exec worker python -c "
 - Nouvelle migration : `docker compose -f compose.yaml -f compose.dev.yaml run --rm migrate alembic revision --autogenerate -m "…"`, puis relire le fichier.
 - Conventions : `upgrade()` et `downgrade()` réels ; nouvelles colonnes `nullable` ou avec `server_default` ; contraintes nommées ; aucun import de `app.models` dans une migration.
 - `tests/test_migrations.py::test_upgrade_head_matches_models` échoue si un modèle change sans migration.
+- Un module qui ouvre sa propre session (`from ..db import SessionLocal`), comme ceux de `app/routes/`, doit figurer dans les fixtures des tests qui remplacent la base (`MODULES` de `tests/test_phase7.py`).
 
 ## Repères du code
 
 | Sujet | Fichier |
 |---|---|
-| API | `backend/app/main.py` |
+| API | `backend/app/main.py` ; les domaines récents dans `backend/app/routes/` (actions et exports, extraits, séries, qualité et temps par étape, accès), un routeur chacun, inclus à la fin de `main.py` |
 | Pipeline (FULL) et régénération (SUMMARY) | `backend/app/worker.py` (`run_pipeline`, `run_summary`) |
 | Prompts LLM | `backend/app/llm.py` |
 | Règles métier (longueur, vocabulaire, langues) | `backend/app/analysis_options.py`, en miroir dans `frontend/lib/analysis.ts` : **garder les deux synchronisés** |
@@ -87,6 +88,8 @@ Vérifier que le GPU est bien utilisé : `docker compose exec worker python -c "
 | Accès depuis le réseau : mot de passe, sessions, proxy HTTPS (service `https`, profil `reseau`) | `backend/app/auth.py`, `AccessGuard` (`main.py`), `caddy/Caddyfile`, `AccessPanel.tsx`, page `frontend/app/login/`, guide `docs/acces-reseau.md` |
 | Installation Windows (lanceur) et assistant de premier lancement | `windows/steno.ps1`, `Installer Steno.cmd`, page `frontend/app/bienvenue/`, guide `docs/installation-windows.md` |
 | Workers en parallèle : une transcription à la fois (verrou Redis), tâches orphelines d'un worker arrêté, estimations de file sur N workers | `backend/app/gpu_slot.py`, `backend/app/recovery.py` (appelé au démarrage des workers et chaque minute par le `scheduler`), `queue_snapshot` (`queue_info.py`) |
+| Temps par étape de chaque traitement (`/performance`, page Modèles) | `backend/app/stage_times.py`, colonnes `processing_jobs.stage_times` et `job_durations.stages` |
+| Bibliothèque et actions page par page (`X-Total-Count`, `total`) ; mesure à grande échelle | `list_videos` (`main.py`), `/actions` (`routes/actions.py`), `frontend/lib/library.ts` ; `backend/scripts/bench_library.py` (pile de test uniquement) |
 | Réglages modifiés depuis l'interface | `backend/app/app_settings.py` (table `app_settings`) |
 | Enregistrement depuis le navigateur (morceaux envoyés au fil de l'eau, `/recordings`) | `/recordings` dans `main.py`, `frontend/app/record/`, `frontend/lib/recorder.ts` |
 | Service `live` : transcription en direct d'un enregistrement (aperçu, petit modèle) | `backend/app/live.py` (`LiveDecoder`, `LiveTranscriber`), table `live_segments` |

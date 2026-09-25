@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, formatBytes } from "../../lib/api";
 import { pullModel, type Pull } from "../../lib/models";
+import PerformancePanel from "../../components/PerformancePanel";
 import QualityPanel from "../../components/QualityPanel";
 
 type Installed = { name: string; size_bytes: number | null; parameter_size: string | null; quantization: string | null; family: string | null; embedding: boolean };
@@ -174,6 +175,8 @@ export default function ModelsPage() {
         </li>;
       })}</ul>
     </section>
+
+    <PerformancePanel />
 
     <QualityPanel />
   </div>;

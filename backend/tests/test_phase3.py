@@ -27,6 +27,9 @@ def db_session(monkeypatch, tmp_path):
     session = sessionmaker(bind=engine, expire_on_commit=False)
     monkeypatch.setattr(main, "SessionLocal", session)
     monkeypatch.setattr(worker, "SessionLocal", session)
+    from app.routes import actions as actions_routes, quality as quality_routes
+    monkeypatch.setattr(actions_routes, "SessionLocal", session)
+    monkeypatch.setattr(quality_routes, "SessionLocal", session)
     monkeypatch.setattr(main.settings, "data_dir", tmp_path)
     monkeypatch.setattr(worker.settings, "data_dir", tmp_path)
     return session

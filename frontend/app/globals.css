@@ -180,3 +180,7 @@
 .welcome-checks li.service-ok i{background:var(--success)}.welcome-checks li.service-warn i{background:var(--warning)}.welcome-checks li.service-bad i{background:var(--danger)}
 .welcome-skip{margin-top:16px;text-align:center}.welcome-skip .link-button{color:var(--text-2);font-size:12.5px;text-decoration:underline}
 #acces h3.field-label{margin-top:20px}#acces .checkbox{margin:10px 0 12px}#acces .setting-row .service-ok{font-family:inherit;font-weight:500}
+
+/* Time per stage */
+.performance-table td:nth-child(3){width:35%}.share-bar{display:block;height:6px;border-radius:3px;background:var(--accent);opacity:.7;min-width:2px}.performance-total td{font-weight:600;border-top:1px solid var(--border-strong)}
+.load-more{display:flex;justify-content:center;margin:16px 0}
