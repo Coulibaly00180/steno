@@ -35,6 +35,7 @@ from .diarization import assign_speakers, diarize
 from .retrieval import build_passages, embed_texts, record_index_failure, transcript_hash, write_index
 from .speakers import apply_turns, build_transcript, speaker_labels
 from .storage import StorageError, can_compact, compact_to_audio, delete_media
+from .gpu_slot import transcription_slot
 from .transcription import StallWatchdog, transcribe_windows
 from .utils import ffprobe_duration, split_text, timestamp
 from . import actions, ai_models, clips, entities, url_import
@@ -229,28 +230,10 @@ def mark_interrupted_job(job_id: str, public_error: str = ERROR_PROCESSING_INTER
 
 
 def recover_interrupted_jobs() -> int:
-    """Fail work left RUNNING by a previous worker process in the single-worker MVP."""
-    with SessionLocal() as db:
-        jobs = list(db.scalars(
-            select(ProcessingJob)
-            .where(ProcessingJob.status == "RUNNING")
-            .with_for_update()
-        ))
-        for job in jobs:
-            video = db.scalar(
-                select(Video)
-                .where(Video.id == job.video_id)
-                .with_for_update()
-            )
-            job.stage = "FAILED"
-            job.status = "FAILED"
-            job.error = ERROR_PROCESSING_INTERRUPTED
-            job.finished_at = now()
-            if video and video.status not in TERMINAL_VIDEO_STATUSES:
-                video.status = "FAILED"
-        if jobs:
-            db.commit()
-        return len(jobs)
+    """Fail every RUNNING job: the single-worker rule. Workers use recovery.recover_orphaned_jobs."""
+    from .recovery import fail_running_jobs
+
+    return fail_running_jobs(session_factory=SessionLocal)
 
 
 def _record_failure(job_id: str, video_id: str | None, public_error: str, exc: BaseException) -> None:
@@ -1024,25 +1007,34 @@ def run_pipeline(job_id: str) -> None:
                         set_job(job_id, progress=p)
                         last_progress = p
 
-            model = get_whisper_model()
-            watchdog = StallWatchdog(
-                settings.whisper_stall_timeout_seconds,
-                on_stall=lambda: mark_interrupted_job(job_id, ERROR_TRANSCRIPTION_STALLED),
-            )
-            # Window by window: decoding a whole 6-hour file at once needs ~5 GB of RAM.
-            doubts: list = []
-            with watchdog:
-                rows, detected = transcribe_windows(
-                    model,
-                    audio_path,
-                    language=forced_language,
-                    initial_prompt=whisper_initial_prompt(vocabulary),
-                    beam_size=settings.whisper_beam_size,
-                    on_progress=report,
-                    heartbeat=watchdog.beat,
-                    doubts=doubts,
+            # One transcription at a time across the workers (app.gpu_slot): another
+            # video's summary may run meanwhile, another Whisper would not fit.
+            with transcription_slot(
+                on_wait=lambda: set_job(job_id, stage="WAITING_TRANSCRIPTION"),
+                check=lambda: check_cancelled(job_id),
+            ):
+                set_job(job_id, stage="TRANSCRIBING")
+                model = get_whisper_model()
+                watchdog = StallWatchdog(
+                    settings.whisper_stall_timeout_seconds,
+                    on_stall=lambda: mark_interrupted_job(job_id, ERROR_TRANSCRIPTION_STALLED),
                 )
-            release_whisper_model()
+                # Window by window: decoding a whole 6-hour file at once needs ~5 GB of RAM.
+                doubts: list = []
+                try:
+                    with watchdog:
+                        rows, detected = transcribe_windows(
+                            model,
+                            audio_path,
+                            language=forced_language,
+                            initial_prompt=whisper_initial_prompt(vocabulary),
+                            beam_size=settings.whisper_beam_size,
+                            on_progress=report,
+                            heartbeat=watchdog.beat,
+                            doubts=doubts,
+                        )
+                finally:
+                    release_whisper_model()
             transcript = "\n".join(f"[{timestamp(start)}] {text}" for start, _, text in rows)
             source_language = forced_language or detected
             check_cancelled(job_id)

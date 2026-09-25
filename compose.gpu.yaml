@@ -21,6 +21,13 @@ services:
       # summaries into ~2k tokens (qwen3:8b + KV cache fit in 16 GB of VRAM).
       LLM_NUM_CTX: "32768"
     deploy:
+      # One worker: measured with 3 imports of 10 minutes on an RTX 5080, two
+      # workers took 102 s and 95 s against 97 s and 83 s for one. Everything
+      # heavy goes through the one card (Ollama answers one request at a time),
+      # and a second worker lets the background jobs take the LLM from the
+      # analyses. WORKER_REPLICAS=2 stays safe (app/gpu_slot.py, app/recovery.py)
+      # for a machine with a second card, or many link downloads and clips.
+      replicas: ${WORKER_REPLICAS:-1}
       resources:
         reservations:
           devices:
@@ -51,3 +58,4 @@ services:
       LLM_NUM_CTX: "32768"
       # Same default as the worker: the models page shows the model really used.
       WHISPER_MODEL: large-v3-turbo
+      WORKER_REPLICAS: ${WORKER_REPLICAS:-1}

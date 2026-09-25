@@ -64,6 +64,9 @@ services:
   api:
     build: ./backend
     env_file: .env
+    environment:
+      # The queue estimates count the workers working in parallel.
+      WORKER_REPLICAS: ${WORKER_REPLICAS:-1}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
@@ -89,6 +92,10 @@ services:
   worker:
     build: ./backend
     command: python -m app.worker_entry
+    # Videos processed in parallel (WORKER_REPLICAS, 1 by default): see the
+    # measurement in compose.gpu.yaml and docs/specs/performance-workers.md.
+    deploy:
+      replicas: ${WORKER_REPLICAS:-1}
     # RQ performs a warm shutdown, but Docker's default 10-second grace period
     # would otherwise kill a long transcription or LLM call mid-job.
     stop_grace_period: 6h

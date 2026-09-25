@@ -380,7 +380,7 @@ def _corpus(folder, with_media=True):
 
 def test_a_run_replays_the_corpus_with_the_analysis_code(env, monkeypatch):
     _corpus(main.settings.data_dir)
-    monkeypatch.setattr(quality, "transcript_for", lambda key, media, on_progress=None: {
+    monkeypatch.setattr(quality, "transcript_for", lambda key, media, **_: {
         "rows": [[0.0, 30.0, "Le budget et le devis."], [65.0, 90.0, "Le salon de Lyon."]], "language": "fr", "seconds": 4, "cached": False,
     })
     monkeypatch.setattr(worker, "release_whisper_model", lambda: None)

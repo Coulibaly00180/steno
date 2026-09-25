@@ -1,4 +1,4 @@
-"""The `scheduler` service: watched folder (n°9) and scheduled backups (n°13).
+"""The `scheduler` service: watched folder (n°9), scheduled backups (n°13), orphaned jobs.
 
 One small loop, separate from the worker: the worker is busy for hours with a
 long video, and neither task may wait for it. Its heartbeat in Redis lets
@@ -14,6 +14,7 @@ from redis import Redis
 from . import backups
 from .config import settings
 from .db import engine
+from .recovery import recover_orphaned_jobs
 from .schema import assert_schema_current
 from .status import SCHEDULER_HEARTBEAT_KEY as HEARTBEAT_KEY
 from .watch_folder import InboxWatcher
@@ -21,6 +22,8 @@ from .watch_folder import InboxWatcher
 logger = logging.getLogger(__name__)
 
 BACKUP_CHECK_SECONDS = 60
+# Jobs left RUNNING by a stopped worker (app.recovery): the other workers never restart to find them.
+ORPHAN_CHECK_SECONDS = 60
 
 
 def heartbeat_ttl() -> int:
@@ -64,6 +67,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     next_backup_check = 0.0
+    next_orphan_check = time.monotonic() + ORPHAN_CHECK_SECONDS
     logger.info("Scheduler started: inbox %s, backups %s", settings.inbox_dir, settings.backups_dir)
     while not stopping:
         now = time.monotonic()
@@ -72,6 +76,12 @@ def main() -> None:
         tick(watcher, check_backups=check)
         if check:
             next_backup_check = now + BACKUP_CHECK_SECONDS
+        if now >= next_orphan_check:
+            next_orphan_check = now + ORPHAN_CHECK_SECONDS
+            try:
+                recover_orphaned_jobs(redis)
+            except Exception:
+                logger.exception("Orphaned job check failed")
         # Short sleeps: a `docker compose stop` is answered at once.
         deadline = time.monotonic() + settings.scheduler_poll_seconds
         while not stopping and time.monotonic() < deadline:

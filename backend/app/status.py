@@ -75,11 +75,15 @@ def check_queue() -> dict:
     if not workers:
         return {"redis": _result("ok"), "worker": _result("down", "arrêté", workers=0, current_job_id=None)}
     busy = [worker for worker in workers if worker.get_state() == "busy"]
+    if len(workers) > 1:
+        detail = f"{len(workers)} workers · {len(busy)} occupé{'s' if len(busy) > 1 else ''}" if busy else f"{len(workers)} workers · inactifs"
+    else:
+        detail = "occupé" if busy else "inactif"
     return {
         "redis": _result("ok"),
         "worker": _result(
             "ok",
-            "occupé" if busy else "inactif",
+            detail,
             workers=len(workers),
             current_job_id=busy[0].get_current_job_id() if busy else None,
         ),

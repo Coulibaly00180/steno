@@ -15,10 +15,17 @@ def test_work_horse_kill_marks_pipeline_failed(monkeypatch):
 
 def test_main_checks_schema_then_starts_worker_with_short_ttl(monkeypatch):
     calls = []
+
+    class FirstRedis:
+        def set(self, key, value, nx, ex):
+            return True
+
     monkeypatch.setattr(worker_entry, "assert_schema_current", lambda engine: calls.append("schema"))
-    monkeypatch.setattr(worker_entry, "recover_interrupted_jobs", lambda: calls.append("recover"))
+    monkeypatch.setattr(worker_entry, "recover_orphaned_jobs", lambda redis: calls.append("recover"))
     monkeypatch.setattr(worker_entry, "enqueue_missing_indexes", lambda: calls.append("index") or 0)
-    monkeypatch.setattr(worker_entry.Redis, "from_url", lambda url: "redis")
+    monkeypatch.setattr(worker_entry, "enqueue_missing_entities", lambda: 0)
+    monkeypatch.setattr(worker_entry.quality, "maybe_schedule", lambda trigger: None)
+    monkeypatch.setattr(worker_entry.Redis, "from_url", lambda url: FirstRedis())
     monkeypatch.setattr(worker_entry, "Queue", lambda name, connection: name)
 
     class FakeWorker:

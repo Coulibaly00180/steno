@@ -204,10 +204,14 @@ def _transcript_cache(key: str, whisper: str) -> Path:
     return corpus_dir() / ".cache" / f"{key}--{safe}--beam{settings.whisper_beam_size}.json"
 
 
-def transcript_for(key: str, media: Path, on_progress=None) -> dict:
-    """{rows, language, seconds}: from the cache, else Whisper (as in a FULL job, same window by window path)."""
+def transcript_for(key: str, media: Path, on_progress=None, on_wait=None, check=None) -> dict:
+    """{rows, language, seconds}: from the cache, else Whisper (as in a FULL job, same window by window path).
+
+    Whisper takes its turn with the analyses (app.gpu_slot): `on_wait` and `check` as there.
+    """
+    from .gpu_slot import transcription_slot
     from .transcription import transcribe_windows
-    from .worker import _extract_audio, get_whisper_model
+    from .worker import _extract_audio, get_whisper_model, release_whisper_model
 
     whisper = ai_models.whisper_model()
     cache = _transcript_cache(key, whisper)
@@ -221,10 +225,15 @@ def transcript_for(key: str, media: Path, on_progress=None) -> dict:
     started = time.monotonic()
     try:
         _extract_audio(media, audio)
-        rows, language = transcribe_windows(
-            get_whisper_model(), audio, language=None, initial_prompt=None,
-            beam_size=settings.whisper_beam_size, on_progress=on_progress,
-        )
+        with transcription_slot(on_wait=on_wait, check=check):
+            try:
+                rows, language = transcribe_windows(
+                    get_whisper_model(), audio, language=None, initial_prompt=None,
+                    beam_size=settings.whisper_beam_size, on_progress=on_progress,
+                )
+            finally:
+                # The slot is freed with the card's memory: the next transcription may load its model.
+                release_whisper_model()
     finally:
         audio.unlink(missing_ok=True)
     result = {"rows": [list(row) for row in rows], "language": language, "seconds": round(time.monotonic() - started)}
@@ -270,7 +279,11 @@ def run_quality(run_id: str) -> None:
                     shown[0] = value
                     _update(run_id, progress=value)
 
-            transcripts[key] = transcript_for(key, media, on_progress=report)
+            transcripts[key] = transcript_for(
+                key, media, on_progress=report,
+                on_wait=lambda key=key: _update(run_id, current=f"En attente d'une autre transcription ({key})"),
+                check=lambda: _update(run_id),
+            )
         release_whisper_model()
 
         with SessionLocal() as db:
@@ -368,16 +381,6 @@ def maybe_schedule(trigger: str = "auto") -> str | None:
         if latest is not None and latest.fingerprint == current:
             return None
     return enqueue("quick", trigger).id
-
-
-def recover_interrupted() -> int:
-    """A run left RUNNING by a stopped worker: failed (the next change starts a new one)."""
-    with SessionLocal() as db:
-        runs = list(db.scalars(select(QualityRun).where(QualityRun.status == "RUNNING")))
-        for run in runs:
-            run.status, run.error, run.current, run.finished_at = "FAILED", "Interrompu (worker arrêté)", None, now()
-        db.commit()
-        return len(runs)
 
 
 def run_out(run: QualityRun, previous: QualityRun | None = None, *, detail: bool = False) -> dict:

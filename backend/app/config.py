@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     ffprobe_timeout_seconds: int = Field(default=60, ge=1, le=600)
     ffmpeg_timeout_seconds: int = Field(default=7200, ge=1, le=21600)
     recover_interrupted_jobs_on_startup: bool = True
+    # Workers processing videos in parallel (compose `deploy.replicas`): the queue estimates count them.
+    worker_replicas: int = Field(default=1, ge=1, le=16)
 
     ollama_url: str = "http://ollama:11434"
     llm_model: str = "qwen3:8b"

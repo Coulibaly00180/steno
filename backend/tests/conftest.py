@@ -57,6 +57,19 @@ def no_action_llm(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def free_transcription_slot(monkeypatch):
+    """One transcription at a time across workers (app.gpu_slot): always free in the unit tests, no Redis."""
+    from contextlib import contextmanager
+
+    @contextmanager
+    def slot(**_):
+        yield
+
+    monkeypatch.setattr(worker, "transcription_slot", slot)
+    return slot
+
+
+@pytest.fixture(autouse=True)
 def open_access(monkeypatch):
     """No password (n°15) unless a test sets one: the access check never reads the database."""
     from app import auth

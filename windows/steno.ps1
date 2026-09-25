@@ -121,18 +121,18 @@ function Select-Setup([bool]$ForceCpu) {
     if ($null -eq $gpu) {
         if ($ForceCpu) { Write-Note "Carte graphique ignorée à la demande (-Cpu)." }
         else { Write-Note "Pas de carte NVIDIA détectée : Sténo tournera sur le processeur (plus lent)." }
-        return [pscustomobject]@{ Gpu = $false; GpuName = $null; Llm = "qwen3:4b" }
+        return [pscustomobject]@{ Gpu = $false; GpuName = $null; MemoryGb = 0; Llm = "qwen3:4b" }
     }
     Write-Ok "$($gpu.Name), $($gpu.Memory) de mémoire vidéo."
     Write-Note "Vérification de l'accès de Docker à la carte (premier lancement : téléchargement d'une image)..."
     if (-not (Test-DockerGpu)) {
         Write-Warn ("Docker n'accède pas à la carte : mettez à jour le pilote NVIDIA et Docker Desktop (moteur WSL 2). " +
             "En attendant, Sténo tournera sur le processeur.")
-        return [pscustomobject]@{ Gpu = $false; GpuName = $gpu.Name; Llm = "qwen3:4b" }
+        return [pscustomobject]@{ Gpu = $false; GpuName = $gpu.Name; MemoryGb = 0; Llm = "qwen3:4b" }
     }
     Write-Ok "Docker utilise la carte graphique."
     $llm = if ($gpu.MemoryGb -ge 10) { "qwen3:8b" } else { "qwen3:4b" }
-    return [pscustomobject]@{ Gpu = $true; GpuName = $gpu.Name; Llm = $llm }
+    return [pscustomobject]@{ Gpu = $true; GpuName = $gpu.Name; MemoryGb = $gpu.MemoryGb; Llm = $llm }
 }
 
 # --- Configuration --------------------------------------------------------------------------------

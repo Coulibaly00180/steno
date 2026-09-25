@@ -12,7 +12,7 @@ export const TERMINAL_STATUSES = ["COMPLETED", "FAILED", "CANCELLED"];
 export const isActive = (job?: Job | null) => !!job && (job.status === "QUEUED" || job.status === "RUNNING");
 
 export const stageLabels: Record<string, string> = {
-  QUEUED: "En attente", STARTING: "Démarrage", DOWNLOADING: "Téléchargement", EXTRACTING_AUDIO: "Extraction audio", TRANSCRIBING: "Transcription",
+  QUEUED: "En attente", STARTING: "Démarrage", DOWNLOADING: "Téléchargement", EXTRACTING_AUDIO: "Extraction audio", TRANSCRIBING: "Transcription", WAITING_TRANSCRIPTION: "En attente de la transcription d'une autre vidéo",
   DIARIZING: "Identification des intervenants", TRANSCRIBED: "Transcription terminée", TRANSLATING: "Traduction", SUMMARIZING_CHUNKS: "Résumé par blocs",
   SUMMARIZING_GROUPS: "Consolidation des blocs", SUMMARIZING_FINAL: "Résumé final", GENERATING_EXPORTS: "Génération des exports",
   INDEXING: "Indexation pour les questions", EXTRACTING_ENTITIES: "Relevé des personnes et des dates", EXTRACTING_ACTIONS: "Relevé des actions et décisions", COMPACTING: "Conversion en audio seul", CLIPPING: "Découpe de l'extrait",

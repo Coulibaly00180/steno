@@ -37,6 +37,8 @@ Le service `migrate` applique les migrations Alembic avant le démarrage de l'AP
 
 PostgreSQL tourne sur une image locale (`postgres/Dockerfile`) : `postgres:17-alpine` + pgvector. Ne pas la remplacer par une image Debian (`pgvector/pgvector`) : le volume existant a été créé sous Alpine, et changer de libc corromprait les index de texte.
 
+Un seul worker par défaut : avec une seule carte graphique, deux workers n'apportaient aucun gain mesuré (`docs/specs/performance-workers.md`). `WORKER_REPLICAS=2` reste sûr (transcriptions à tour de rôle, `app/gpu_slot.py` ; tâches orphelines, `app/recovery.py`) ; `docker compose exec worker …` vise alors le premier, `--index 2` le second.
+
 Vérifier que le GPU est bien utilisé : `docker compose exec worker python -c "import ctranslate2; print(ctranslate2.get_cuda_device_count())"` (doit afficher 1) et `docker compose logs ollama | grep "inference compute"` (doit citer la carte NVIDIA).
 
 ### Données de l'utilisateur
@@ -84,6 +86,7 @@ Vérifier que le GPU est bien utilisé : `docker compose exec worker python -c "
 | Extraits vidéo (tâche `CLIP`, sous-titres incrustés ou en piste) | `backend/app/clips.py`, `run_clip` (`worker.py`), routes `/videos/{id}/clips` et `/clips` (`main.py`), `ClipsPanel.tsx` |
 | Accès depuis le réseau : mot de passe, sessions, proxy HTTPS (service `https`, profil `reseau`) | `backend/app/auth.py`, `AccessGuard` (`main.py`), `caddy/Caddyfile`, `AccessPanel.tsx`, page `frontend/app/login/`, guide `docs/acces-reseau.md` |
 | Installation Windows (lanceur) et assistant de premier lancement | `windows/steno.ps1`, `Installer Steno.cmd`, page `frontend/app/bienvenue/`, guide `docs/installation-windows.md` |
+| Workers en parallèle : une transcription à la fois (verrou Redis), tâches orphelines d'un worker arrêté, estimations de file sur N workers | `backend/app/gpu_slot.py`, `backend/app/recovery.py` (appelé au démarrage des workers et chaque minute par le `scheduler`), `queue_snapshot` (`queue_info.py`) |
 | Réglages modifiés depuis l'interface | `backend/app/app_settings.py` (table `app_settings`) |
 | Enregistrement depuis le navigateur (morceaux envoyés au fil de l'eau, `/recordings`) | `/recordings` dans `main.py`, `frontend/app/record/`, `frontend/lib/recorder.ts` |
 | Service `live` : transcription en direct d'un enregistrement (aperçu, petit modèle) | `backend/app/live.py` (`LiveDecoder`, `LiveTranscriber`), table `live_segments` |

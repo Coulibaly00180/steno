@@ -185,4 +185,4 @@ def test_worker_registry(monkeypatch):
 
     monkeypatch.setattr(status.Worker, "all", lambda **kwargs: [FakeWorker("idle"), FakeWorker("busy", "rq-1")])
     worker = status.check_queue()["worker"]
-    assert worker == {"status": "ok", "detail": "occupé", "workers": 2, "current_job_id": "rq-1"}
+    assert worker == {"status": "ok", "detail": "2 workers · 1 occupé", "workers": 2, "current_job_id": "rq-1"}

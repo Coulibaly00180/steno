@@ -12,6 +12,7 @@ from statistics import median
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from .config import settings
 from .models import JobDuration, ProcessingJob, Video
 
 ACTIVE_JOB_STATUSES = ("QUEUED", "RUNNING")
@@ -87,8 +88,12 @@ def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
-def queue_snapshot(db: Session, now: datetime | None = None) -> dict[str, QueueInfo]:
-    """Position and remaining time of every active job, keyed by job id."""
+def queue_snapshot(db: Session, now: datetime | None = None, workers: int | None = None) -> dict[str, QueueInfo]:
+    """Position and remaining time of every active job, keyed by job id.
+
+    `workers` (WORKER_REPLICAS by default) work in parallel: each waiting job
+    goes to the first one free, and ends that much later.
+    """
     now = now or datetime.now(timezone.utc)
     rows = db.execute(
         select(ProcessingJob, Video.duration_seconds, Video.target_language)
@@ -105,8 +110,8 @@ def queue_snapshot(db: Session, now: datetime | None = None) -> dict[str, QueueI
         return model.predict(media_seconds) if model else None
 
     snapshot: dict[str, QueueInfo] = {}
-    # Time before the worker is free; None once an unknown duration is in the way.
-    backlog: float | None = 0.0
+    # When each worker is free again; None when its job's duration is unknown.
+    lanes: list[float | None] = []
     for job, media_seconds, target_language in rows:
         if job.status != "RUNNING":
             continue
@@ -117,15 +122,24 @@ def queue_snapshot(db: Session, now: datetime | None = None) -> dict[str, QueueI
             # Over the estimate: "almost done" rather than a negative time.
             remaining = max(0.0, total - elapsed)
         snapshot[job.id] = QueueInfo(0, remaining)
-        backlog = None if backlog is None or remaining is None else backlog + remaining
+        lanes.append(remaining)
+    # The idle workers take the next jobs at once.
+    lanes += [0.0] * max(0, (workers or settings.worker_replicas) - len(lanes))
 
     position = 0
-    # The worker drains the main queue before the indexing queue (worker_entry).
+    # The workers drain the main queue before the indexing queue (worker_entry).
     queued = [row for row in rows if row[0].status == "QUEUED"]
     queued.sort(key=lambda row: row[0].kind in ("INDEX", "ENTITIES"))
     for job, media_seconds, target_language in queued:
         position += 1
         total = expected(job, media_seconds, target_language)
-        backlog = None if backlog is None or total is None else backlog + total
-        snapshot[job.id] = QueueInfo(position, backlog)
+        known = [index for index, lane in enumerate(lanes) if lane is not None]
+        if not known:
+            snapshot[job.id] = QueueInfo(position, None)
+            continue
+        # The first worker free takes it (a worker of unknown duration may free sooner: an upper bound).
+        free = min(known, key=lambda index: lanes[index])
+        end = None if total is None else lanes[free] + total
+        lanes[free] = end
+        snapshot[job.id] = QueueInfo(position, end)
     return snapshot
