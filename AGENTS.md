@@ -68,7 +68,7 @@ Vérifier que le GPU est bien utilisé : `docker compose exec worker python -c "
 | Prompts LLM | `backend/app/llm.py` |
 | Règles métier (longueur, vocabulaire, langues) | `backend/app/analysis_options.py`, en miroir dans `frontend/lib/analysis.ts` : **garder les deux synchronisés** |
 | Exports (fichiers) ; comptes-rendus DOCX/PDF générés à la demande | `backend/app/exports.py` ; `backend/app/reports.py` |
-| Intervenants : diarisation (sherpa-onnx, modèles intégrés à l'image par `backend/scripts/fetch_diarization_models.py`), libellés dans la transcription | `backend/app/diarization.py`, `backend/app/speakers.py`, `diarize_video` et `run_diarize` (`worker.py`) |
+| Intervenants : diarisation (Nemotron 3 Diarization par défaut, sherpa-onnx en repli au-delà de 8 voix ; modèles intégrés à l'image par `backend/scripts/fetch_diarization_models.py`, licence dans `backend/models/nemotron/`), libellés dans la transcription | `backend/app/nemotron.py`, `backend/app/diarization.py` (`engine_for`), `backend/app/speakers.py`, `diarize_video` et `run_diarize` (`worker.py`) ; banc `backend/bench/` (`--engine`) |
 | État du système | `backend/app/status.py` (`/status` ; `/ready` reste le healthcheck Docker) |
 | File d'attente, estimations, annulation | `backend/app/queue_info.py`, `POST /jobs/{id}/cancel` (`main.py`), `JobCancelled` (`worker.py`) |
 | Recherche sémantique : passages, embeddings, indexation, questions sur plusieurs vidéos | `backend/app/retrieval.py`, `index_video` et `run_index` (`worker.py`, file secondaire `video-ai-index`), `/library/chat/stream` (`main.py`), page `frontend/app/ask/` |

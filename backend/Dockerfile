@@ -13,6 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Speaker diarization models (n°8), fetched and checksum-verified at build time.
 COPY scripts/fetch_diarization_models.py /tmp/
 RUN python /tmp/fetch_diarization_models.py /opt/models/diarization
+# Nemotron 3 Diarization's licence (OpenMDW 1.1) and notices, next to the model.
+COPY models/nemotron/ /opt/models/diarization/nemotron/
 
 WORKDIR /app
 COPY requirements.txt .

@@ -1,4 +1,6 @@
 from pathlib import Path
+from typing import Literal
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -38,6 +40,9 @@ class Settings(BaseSettings):
     # Speaker diarization (n°8): ONNX models baked into the image (see Dockerfile).
     diarization_models_dir: Path = Path("/opt/models/diarization")
     diarization_threads: int = Field(default=4, ge=1, le=32)
+    # "nemotron" (feuille de route n° 3, phase 3) or "sherpa", the clustering engine,
+    # which also takes over beyond 8 speakers or when the Nemotron model is missing.
+    diarization_engine: Literal["nemotron", "sherpa"] = "nemotron"
 
     whisper_model: str = "small"
     whisper_device: str = "cpu"

@@ -1,10 +1,10 @@
 {
- "_comment": "Mesure de départ (2026-09-26, sherpa-onnx pyannote + TitaNet, Whisper small sur CPU) moins une marge : le banc bloque les reculs. À relever quand une amélioration est livrée (feuille de route n° 3, phase 3).",
+ "_comment": "Nemotron 3 Diarization (feuille de route n° 3, phase 3, 2026-09-26), Whisper small sur CPU, moins une marge : le banc bloque les reculs. « mots » varie de quelques points d'un lancement à l'autre (repli de Whisper sur un décodage par échantillonnage).",
  "dialogue": {"max": {"speaker_error": 0.03}, "min": {"words_found": 0.95, "person": 0.97}, "all_voices": true},
  "bruit": {"max": {"speaker_error": 0.06}, "min": {"words_found": 0.9, "person": 0.95}, "all_voices": true},
- "reunion": {"max": {"speaker_error": 0.45}, "min": {"words_found": 0.85, "person": 0.48}},
- "grande-reunion": {"max": {"speaker_error": 0.47}, "min": {"words_found": 0.82, "person": 0.5}},
- "musique": {"max": {"speaker_error": 0.45}, "min": {"words_found": 0.78, "person": 0.45}},
+ "reunion": {"max": {"speaker_error": 0.06}, "min": {"words_found": 0.85, "person": 0.95}, "all_voices": true},
+ "grande-reunion": {"max": {"speaker_error": 0.08}, "min": {"words_found": 0.8, "person": 0.93}, "all_voices": true},
+ "musique": {"max": {"speaker_error": 0.05}, "min": {"words_found": 0.78, "person": 0.95}, "all_voices": true},
  "silence": {"max": {"lines": 0}},
- "ami-ES2004a-5min": {"max": {"speaker_error": 0.2}, "min": {"person": 0.9}}
+ "ami-ES2004a-5min": {"max": {"speaker_error": 0.14}, "min": {"person": 0.95}, "all_voices": true}
 }
