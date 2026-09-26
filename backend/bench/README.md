@@ -2,7 +2,7 @@
 
 Ce banc mesure deux choses : qui parle (identification des intervenants) et ce que Whisper entend. Il tourne sur des réunions françaises générées et sur une vraie réunion enregistrée (AMI). L'intégration continue le lance à chaque modification et échoue sous les seuils de `thresholds.json`.
 
-Origine : feuille de route n° 3, phase 1 (`docs/roadmap.md`) ; mesure de départ dans `docs/specs/banc-voix.md`.
+Origine : feuille de route n° 3, phase 1 (`docs/roadmap.md`) ; mesure de départ dans `docs/specs/banc-voix.md`, passage à Nemotron dans `docs/specs/nemotron.md`.
 
 ## Lancer
 
@@ -10,6 +10,7 @@ Origine : feuille de route n° 3, phase 1 (`docs/roadmap.md`) ; mesure de dépar
 docker compose -f compose.test.yaml run --rm bench          # les cas français + 5 min d'AMI, avec vérification des seuils
 MSYS_NO_PATHCONV=1 docker compose -f compose.test.yaml run --rm bench python -m bench.run --case --ami --ami-minutes 0   # AMI en entier (17 min)
 MSYS_NO_PATHCONV=1 docker compose -f compose.test.yaml run --rm bench python -m bench.run --speakers-given --json /cache/bench/scores.json
+MSYS_NO_PATHCONV=1 docker compose -f compose.test.yaml run --rm bench python -m bench.run --ami --engine sherpa   # l'ancien moteur, pour comparer
 ```
 
 Options de `bench.run` :
@@ -21,6 +22,7 @@ Options de `bench.run` :
 | `--ami-minutes N` | durée d'AMI prise en compte (5 par défaut, 0 pour les 17 min) |
 | `--model NOM` | modèle Whisper (par défaut `WHISPER_MODEL`, `small` dans la pile de test) |
 | `--speakers-given` | mesure aussi l'erreur quand le nombre d'intervenants est donné |
+| `--engine nemotron\|sherpa` | moteur d'identification des voix (par défaut `DIARIZATION_ENGINE`, Nemotron) |
 | `--json FICHIER` | écrit les résultats, pour comparer deux versions |
 | `--check` | code de sortie 1 sous les seuils |
 
@@ -44,7 +46,7 @@ Le service `bench` utilise l'image de l'application, parce que les modèles d'id
 |---|---|
 | `dialogue` | Deux personnes, avec des « d'accord » qui se chevauchent |
 | `reunion` | Quatre personnes, avec des interruptions |
-| `grande-reunion` | Six personnes, dont deux ne parlent qu'environ 15 s. C'est la limite sous laquelle Sténo rattache une voix à une autre. |
+| `grande-reunion` | Six personnes, dont deux ne parlent qu'environ 15 s. C'était la limite sous laquelle sherpa-onnx rattachait une voix à une autre. |
 | `musique` | Deux personnes avec une musique de fond |
 | `bruit` | Deux personnes avec un micro bruyant (bruit rose) |
 | `silence` | 20 s de bruit de pièce, sans parole |
@@ -66,6 +68,10 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "<dépôt>\\backend\\bench:/bench" python:
 ```
 
 Voix et licences : `NOTICE.md`.
+
+## Vérifier le portage de Nemotron
+
+`nemotron_reference.py` compare `app/nemotron.py` à l'implémentation de Hugging Face transformers, sur `dialogue`, `grande-reunion` et AMI en entier. À relancer si le modèle, sa révision ou le portage changent : mode d'emploi en tête du fichier.
 
 ## Limites
 

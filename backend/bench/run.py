@@ -4,6 +4,7 @@
     docker compose -f compose.test.yaml run --rm bench python -m bench.run --ami --ami-minutes 0   # plus all 17 min of AMI
     options: --case NAME…  --ami  --ami-minutes N (5; 0: whole)  --model NAME (Whisper; default: WHISPER_MODEL)
              --speakers-given (also measure with the number of speakers given)  --json FILE  --check
+             --engine nemotron|sherpa (who speaks; default: DIARIZATION_ENGINE)
 
 Columns:
 - erreur de personne: share of the speech of one person at a time that goes to
@@ -156,7 +157,7 @@ def text_scores(truth: dict, rows: list, numbers: list, mapping: dict) -> dict:
     return result
 
 
-def run_case(name: str, audio: Path, truth: dict, model, speakers_given: bool) -> dict:
+def run_case(name: str, audio: Path, truth: dict, model, speakers_given: bool, engine: str | None = None) -> dict:
     from app.config import settings
     from app.diarization import assign_speakers, diarize
     from app.transcription import transcribe_windows
@@ -170,7 +171,7 @@ def run_case(name: str, audio: Path, truth: dict, model, speakers_given: bool) -
         result: dict = {"case": name, "transcription_s": round(transcribed, 1)}
         if truth["speakers"]:
             started = time.monotonic()
-            turns = diarize(wav)
+            turns = diarize(wav, engine=engine)
             result["diarization_s"] = round(time.monotonic() - started, 1)
             scores = speaker_scores(truth, turns)
             mapping = scores.pop("_mapping")
@@ -178,7 +179,7 @@ def run_case(name: str, audio: Path, truth: dict, model, speakers_given: bool) -
             numbers = assign_speakers([(start, end) for start, end, _ in rows], turns)
             result |= text_scores(truth, rows, numbers, mapping)
             if speakers_given:
-                given = speaker_scores(truth, diarize(wav, num_speakers=len(truth["speakers"])))
+                given = speaker_scores(truth, diarize(wav, num_speakers=len(truth["speakers"]), engine=engine))
                 result["speaker_error_given"] = given["speaker_error"]
         else:
             result["lines"] = len(rows)
@@ -214,14 +215,21 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--speakers-given", action="store_true")
     parser.add_argument("--json", default=None)
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--engine", choices=["nemotron", "sherpa"], default=None)
     args = parser.parse_args(argv)
 
+    import ctranslate2
     from faster_whisper import WhisperModel
 
     from app.config import settings
+    from app.diarization import engine_for
 
     name = args.model or settings.whisper_model
-    print(f"Whisper {name} sur {settings.whisper_device}", flush=True)
+    engine = engine_for(None, args.engine)
+    print(f"Whisper {name} sur {settings.whisper_device}, voix : {engine}", flush=True)
+    # When Whisper doubts, it decodes again by sampling: without a seed, "mots" moved
+    # by up to 15 points between two runs of the same code (musique: 85 %, then 71 %).
+    ctranslate2.set_random_seed(0)
     model = WhisperModel(name, device=settings.whisper_device, compute_type=settings.whisper_compute_type)
     jobs = []
     # --case with no name: AMI only.
@@ -235,7 +243,7 @@ def main(argv: list[str]) -> int:
     header = f"{'Cas':<22} {'erreur de personne':>19} {'voix':>6} {'mots':>8} {'bonne personne':>15} {'lignes':>7} {'durée':>8}"
     print(header, flush=True)
     for case, audio, truth in jobs:
-        result = run_case(case, audio, truth, model, args.speakers_given)
+        result = run_case(case, audio, truth, model, args.speakers_given, engine)
         results.append(result)
         seconds = result.get("transcription_s", 0) + result.get("diarization_s", 0)
         print(f"{case:<22} {percent(result.get('speaker_error')):>19} {result.get('voices', '—'):>6} "
@@ -244,7 +252,7 @@ def main(argv: list[str]) -> int:
         if args.speakers_given and result.get("speaker_error_given") is not None:
             print(f"{'':<22} nombre de voix donné : {percent(result['speaker_error_given'])}", flush=True)
     if args.json:
-        Path(args.json).write_text(json.dumps({"model": name, "results": results}, ensure_ascii=False, indent=1), encoding="utf-8")
+        Path(args.json).write_text(json.dumps({"model": name, "engine": engine, "results": results}, ensure_ascii=False, indent=1), encoding="utf-8")
     if args.check:
         failures = check(results)
         for failure in failures:

@@ -1,4 +1,8 @@
-"""Who speaks when (n°8): local speaker diarization with sherpa-onnx.
+"""Who speaks when (n°8): local speaker diarization.
+
+Nemotron 3 Diarization (app/nemotron.py, feuille de route n° 3) is the default
+engine; this module picks it (`engine_for`) and keeps sherpa-onnx, described
+below, for more than 8 speakers or when the Nemotron model is missing.
 
 Models (downloaded when the image is built, no account needed):
 - segmentation: pyannote segmentation-3.0 (MIT), exported to ONNX by sherpa-onnx;
@@ -22,6 +26,7 @@ from pathlib import Path
 
 import numpy as np
 
+from . import nemotron
 from .config import settings
 from .transcription import iter_audio_windows
 
@@ -181,14 +186,36 @@ def number_by_appearance(turns: list[tuple[float, float, int]]) -> list[Turn]:
     return result
 
 
+def engine_for(num_speakers: int | None = None, engine: str | None = None) -> str:
+    """The engine that will run: Nemotron unless asked otherwise, missing, or given more voices than it follows."""
+    chosen = engine or settings.diarization_engine
+    if chosen == "nemotron" and (not nemotron.model_available() or (num_speakers or 0) > nemotron.SPEAKERS):
+        return "sherpa"
+    return chosen
+
+
 def diarize(
     wav_path: Path,
     *,
     num_speakers: int | None = None,
     on_progress: Callable[[float], None] | None = None,
     window_seconds: float = WINDOW_SECONDS,
+    engine: str | None = None,
 ) -> list[Turn]:
     """Speaker turns of a 16 kHz mono WAV."""
+    if engine_for(num_speakers, engine) == "nemotron":
+        active = nemotron.activity(wav_path, on_progress=on_progress)
+        return number_by_appearance(nemotron.turns_from_activity(active, num_speakers))
+    return _diarize_sherpa(wav_path, num_speakers=num_speakers, on_progress=on_progress, window_seconds=window_seconds)
+
+
+def _diarize_sherpa(
+    wav_path: Path,
+    *,
+    num_speakers: int | None,
+    on_progress: Callable[[float], None] | None,
+    window_seconds: float,
+) -> list[Turn]:
     diarizer, extractor = _engines()
     clusters: list[Cluster] = []
     for offset, end, samples in iter_audio_windows(wav_path, window_seconds):

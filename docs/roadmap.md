@@ -58,7 +58,7 @@ Ce qu'on en retient :
 |---|---|
 | 1 — Mesurer « qui parle » | **livrée** le 2026-09-26 (`docs/specs/banc-voix.md`) : bien à 2 personnes et sur AMI 17 min (8,4 %), **fusion de voix** dès 4 personnes en réunion courte (40 à 42 %) et avec musique |
 | 2 — Transcription propre | **livrée** le 2026-09-26 (`docs/specs/transcription-propre.md`), sauf la densité des chapitres, à discuter |
-| 3 — Nemotron | à faire : **justifiée par la phase 1** (réunions courtes à plusieurs, musique) ; seuils du banc à relever si elle améliore |
+| 3 — Nemotron | **livrée** le 2026-09-26 (`docs/specs/nemotron.md`) : 4/4 et 6/6 voix trouvées (erreur 1,8 et 4,3 % au lieu de 40 et 42 %), musique 1,3 % au lieu de 40,8 %, AMI 17 min 8,0 % au lieu de 8,4 %, trois fois plus rapide ; seuils du banc relevés |
 | 4 — Deux pistes | à faire |
 | 5 — Cartes AMD / Intel | reportée |
 
@@ -127,7 +127,7 @@ Phase 5 — Cartes AMD / Intel (Vulkan) : indépendante, optionnelle
   - la préparation audio (log-mel) et la boucle avec mémoire des voix déjà entendues, portées en Python avec onnxruntime et numpy, d'après leur `nemotron.rs` et `Nemotron3DiarizationSpeakerCache` de transformers ;
   - leur post-traitement :
     - seuil de 0,5 ;
-    - pauses de moins de 0,5 s comblées ;
+    - pauses de moins de 0,5 s comblées (livré : **1,5 s**, mesuré dans `docs/specs/nemotron.md`) ;
     - morceaux de moins de 0,3 s ignorés ;
     - voix de moins de 4 s (ou 4 % de la parole) rattachées à la voix la plus proche ;
     - une phrase entière attribuée à une seule personne ;

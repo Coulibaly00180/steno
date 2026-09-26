@@ -47,4 +47,4 @@ Moteur : sherpa-onnx (pyannote segmentation-3.0 + TitaNet), avec le regroupement
 
 ## Seuils
 
-`thresholds.json` reprend ces valeurs avec une marge de quelques points : le banc bloque les reculs, pas l'état actuel. Il faudra les relever quand la phase 3 (Nemotron) sera livrée, si elle améliore les réunions à plusieurs personnes.
+`thresholds.json` reprenait ces valeurs avec une marge de quelques points : le banc bloque les reculs, pas l'état actuel. Ils ont été relevés avec la phase 3 (Nemotron, `docs/specs/nemotron.md`) : toutes les voix doivent maintenant être trouvées dans chaque cas, et l'erreur de personne reste sous 6 à 8 % sur les réunions générées et sous 14 % sur AMI 5 min.
