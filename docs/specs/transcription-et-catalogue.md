@@ -33,6 +33,22 @@ Le mode par lots accepte le vocabulaire (`initial_prompt`) et la confiance par m
 
 Pour un outil de transcription, perdre des phrases sans le dire coûte plus que la vitesse ne rapporte. **La transcription reste séquentielle.** À retester si une version de faster-whisper corrige cette perte, en refaisant la comparaison mot à mot sur le corpus.
 
+### Problème connu, non traité (décision du 2026-09-26)
+
+**Cause probable, non vérifiée dans le code de faster-whisper.** Le mode par lots décode chaque morceau de parole (30 s au plus) en une seule passe. Quand le modèle croit le morceau terminé trop tôt, par exemple après une musique, une citation ou un changement de voix, la fin du morceau est perdue. Le mode séquentiel, lui, repart après le dernier mot reconnu, et recommence quand le résultat est douteux.
+
+**Correction envisagée, non réalisée : les lots, puis un rattrapage ciblé.**
+
+1. Pour chaque morceau, comparer sa durée de parole (VAD) à la fin du dernier mot reconnu.
+2. S'il reste plus de 2 à 3 s de parole sans texte, retranscrire ce morceau en mode séquentiel.
+3. Garder la version la plus complète.
+
+Gain espéré : environ 2 fois plus rapide que le séquentiel, au lieu de 3 fois.
+
+**Critère de réussite** : presque aucun mot perdu, sur les trois fichiers du corpus, dans la comparaison mot à mot avec la transcription séquentielle. Puis aucun recul à l'évaluation de qualité.
+
+**Pourquoi ce n'est pas fait** : le gain est d'environ 30 s par heure de média, alors que le modèle de langage prend au moins autant de temps. Ça ne vaut que pour de gros volumes de vidéos.
+
 Le chargement du modèle Whisper coûte 2,5 s par vidéo : un service qui le garderait en mémoire ne vaut pas sa complexité.
 
 ## Catalogue des modèles Ollama
