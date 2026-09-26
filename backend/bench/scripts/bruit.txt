@@ -1,0 +1,14 @@
+# Deux personnes avec un micro bruyant (ventilation, micro intégré d'un ordinateur portable).
+Pierre|0.5|Bonjour Sophie, désolé pour le bruit, je suis dans la salle avec la ventilation.
+Sophie|0.6|Pas de souci, je t'entends quand même. Tu voulais qu'on parle des fournisseurs ?
+Pierre|0.5|Oui. On a reçu trois devis pour l'impression des catalogues, et les écarts sont importants.
+Sophie|0.4|Quel est le moins cher ?
+Pierre|0.5|Celui de l'imprimerie de Nantes, mais leur délai est de six semaines, c'est trop long pour le salon.
+Sophie|0.5|Et les deux autres ?
+Pierre|0.4|Quatre semaines pour les deux, avec environ quinze pour cent d'écart de prix.
+Sophie|0.5|Je préfère payer un peu plus et être sûrs d'avoir les catalogues à temps.
+Pierre|0.4|C'est aussi mon avis. Je peux leur demander s'ils acceptent un paiement en deux fois.
+Sophie|0.5|Bonne idée. Et vérifie qu'ils livrent directement sur le stand.
+Pierre|0.4|D'accord, je les appelle demain matin et je te fais un retour avant midi.
+Sophie|0.5|Parfait. Merci Pierre, et bon courage avec la ventilation.
+Pierre|0.4|Merci, à demain.

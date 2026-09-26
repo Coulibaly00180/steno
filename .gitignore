@@ -25,3 +25,6 @@ data/corpus/*
 data/https/
 # Choices of the Windows launcher (GPU or not)
 .steno-launcher.json
+# Voices bench: Whisper, the Piper voices and the AMI meeting, downloaded once
+.bench-cache/
+backend/bench/.cache/

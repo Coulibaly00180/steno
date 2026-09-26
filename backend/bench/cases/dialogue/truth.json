@@ -1,0 +1,130 @@
+{
+ "language": "fr",
+ "speakers": [
+  "Claire",
+  "Pierre"
+ ],
+ "duration": 80.64,
+ "lines": [
+  {
+   "speaker": "Claire",
+   "start": 1.0,
+   "end": 5.827,
+   "text": "Bonjour Pierre, merci d'avoir pris un moment pour faire le point sur le budget du trimestre."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 6.427,
+   "end": 11.459,
+   "text": "Avec plaisir. J'ai préparé les chiffres ce matin, on est un peu au-dessus de ce qu'on avait prévu."
+  },
+  {
+   "speaker": "Claire",
+   "start": 11.859,
+   "end": 13.147,
+   "text": "De combien, à peu près ?"
+  },
+  {
+   "speaker": "Pierre",
+   "start": 13.647,
+   "end": 17.94,
+   "text": "Environ huit pour cent sur le marketing, surtout à cause du salon de septembre."
+  },
+  {
+   "speaker": "Claire",
+   "start": 17.54,
+   "end": 18.132,
+   "text": "D'accord."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 18.432,
+   "end": 22.906,
+   "text": "Le reste tient, les frais de déplacement ont même baissé grâce aux réunions à distance."
+  },
+  {
+   "speaker": "Claire",
+   "start": 23.506,
+   "end": 27.677,
+   "text": "C'est une bonne nouvelle. Est-ce qu'on peut compenser le salon sur le quatrième trimestre ?"
+  },
+  {
+   "speaker": "Pierre",
+   "start": 28.177,
+   "end": 32.303,
+   "text": "Je pense que oui, si on repousse la campagne d'affichage prévue en novembre."
+  },
+  {
+   "speaker": "Claire",
+   "start": 32.703,
+   "end": 36.806,
+   "text": "Je préfère éviter de toucher à la campagne, elle est déjà signée avec l'agence."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 37.306,
+   "end": 42.492,
+   "text": "Alors il faudrait réduire les achats de matériel, on avait prévu de renouveler les ordinateurs portables."
+  },
+  {
+   "speaker": "Claire",
+   "start": 42.792,
+   "end": 43.92,
+   "text": "Combien d'ordinateurs ?"
+  },
+  {
+   "speaker": "Pierre",
+   "start": 44.32,
+   "end": 49.358,
+   "text": "Douze, pour l'équipe commerciale. On pourrait en acheter six maintenant et six au printemps."
+  },
+  {
+   "speaker": "Claire",
+   "start": 49.958,
+   "end": 54.399,
+   "text": "Ça me paraît raisonnable. Tu peux préparer une nouvelle version du tableau avec ce scénario ?"
+  },
+  {
+   "speaker": "Pierre",
+   "start": 54.799,
+   "end": 58.864,
+   "text": "Oui, je te l'envoie demain avant midi, avec les deux options côte à côte."
+  },
+  {
+   "speaker": "Claire",
+   "start": 58.564,
+   "end": 59.037,
+   "text": "Parfait."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 59.437,
+   "end": 62.84,
+   "text": "Et pour le recrutement du stagiaire, on garde la date de janvier ?"
+  },
+  {
+   "speaker": "Claire",
+   "start": 63.34,
+   "end": 68.812,
+   "text": "Oui, on garde janvier. Le poste est déjà publié et on a reçu une quinzaine de candidatures."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 69.312,
+   "end": 72.279,
+   "text": "Très bien. Je bloque le budget correspondant dans le tableau."
+  },
+  {
+   "speaker": "Claire",
+   "start": 72.879,
+   "end": 76.755,
+   "text": "Merci Pierre. On refait un point la semaine prochaine, même heure."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 77.155,
+   "end": 79.136,
+   "text": "Entendu, à la semaine prochaine."
+  }
+ ]
+}

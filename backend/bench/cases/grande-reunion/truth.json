@@ -1,0 +1,140 @@
+{
+ "language": "fr",
+ "speakers": [
+  "Claire",
+  "Pierre",
+  "Karim",
+  "Sophie",
+  "Marc",
+  "Lina"
+ ],
+ "duration": 146.12,
+ "lines": [
+  {
+   "speaker": "Claire",
+   "start": 1.0,
+   "end": 6.702,
+   "text": "Bonjour à tous. Chacun fait un tour rapide de ses sujets, et on garde dix minutes pour les questions à la fin."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 7.202,
+   "end": 14.033,
+   "text": "Je commence. Le devis pour le client de Lyon est parti hier. Ils doivent nous répondre avant la fin du mois, et j'ai bon espoir."
+  },
+  {
+   "speaker": "Karim",
+   "start": 14.533,
+   "end": 23.568,
+   "text": "De mon côté, la migration de la base de données est terminée. On a eu une coupure de dix minutes dimanche, rien de grave."
+  },
+  {
+   "speaker": "Sophie",
+   "start": 24.068,
+   "end": 31.774,
+   "text": "Pour le marketing, la lettre d'information de septembre est prête. Elle part mardi à neuf heures, à environ quatre mille contacts."
+  },
+  {
+   "speaker": "Marc",
+   "start": 32.274,
+   "end": 41.852,
+   "text": "Moi, je suis toujours sur le dossier de subvention. Il manque deux pièces justificatives, je relance la comptabilité aujourd'hui."
+  },
+  {
+   "speaker": "Lina",
+   "start": 42.352,
+   "end": 49.206,
+   "text": "Et pour le support, on a traité soixante demandes cette semaine. La plupart concernent la nouvelle facturation."
+  },
+  {
+   "speaker": "Claire",
+   "start": 48.806,
+   "end": 50.523,
+   "text": "Soixante, c'est beaucoup."
+  },
+  {
+   "speaker": "Lina",
+   "start": 50.823,
+   "end": 58.861,
+   "text": "Oui, les clients ne comprennent pas le nouveau format des factures. Je propose d'ajouter une page d'explication sur le site."
+  },
+  {
+   "speaker": "Sophie",
+   "start": 59.361,
+   "end": 63.786,
+   "text": "Je peux t'aider pour la page, on a déjà des illustrations qui pourraient servir."
+  },
+  {
+   "speaker": "Karim",
+   "start": 64.286,
+   "end": 68.915,
+   "text": "Et on pourrait ajouter un lien direct dans le courriel qui accompagne chaque facture."
+  },
+  {
+   "speaker": "Marc",
+   "start": 69.415,
+   "end": 77.866,
+   "text": "Attention, le modèle du courriel est validé par le service juridique. Il faudra leur redemander leur accord."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 78.366,
+   "end": 82.932,
+   "text": "Je connais bien la personne qui s'en occupe, je peux lui en parler cette semaine."
+  },
+  {
+   "speaker": "Lina",
+   "start": 83.332,
+   "end": 93.015,
+   "text": "Merci, ça nous ferait gagner du temps. On pourrait viser la fin du mois pour tout mettre en ligne."
+  },
+  {
+   "speaker": "Claire",
+   "start": 93.615,
+   "end": 97.095,
+   "text": "Très bien. Marc, pour la subvention, quelle est la date limite ?"
+  },
+  {
+   "speaker": "Marc",
+   "start": 97.595,
+   "end": 105.513,
+   "text": "Le quinze octobre. Si les pièces arrivent cette semaine, on sera largement dans les temps."
+  },
+  {
+   "speaker": "Karim",
+   "start": 106.013,
+   "end": 114.41,
+   "text": "Tu as besoin des chiffres d'utilisation du service ? Je peux les sortir en une heure."
+  },
+  {
+   "speaker": "Marc",
+   "start": 114.81,
+   "end": 123.462,
+   "text": "Oui, volontiers, ça renforcerait le dossier. Envoie-les-moi quand tu peux."
+  },
+  {
+   "speaker": "Sophie",
+   "start": 123.962,
+   "end": 129.55,
+   "text": "Dernier point pour moi : la vidéo de présentation est en montage, on aura une première version lundi."
+  },
+  {
+   "speaker": "Lina",
+   "start": 130.05,
+   "end": 134.461,
+   "text": "On pourra l'utiliser aussi pour le support, pour montrer les premiers pas dans l'application."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 134.961,
+   "end": 138.964,
+   "text": "Bonne idée. Et on pourrait l'envoyer au client de Lyon avec la relance du devis."
+  },
+  {
+   "speaker": "Claire",
+   "start": 139.564,
+   "end": 144.621,
+   "text": "Parfait. Merci à tous, c'était efficace. On se retrouve la semaine prochaine."
+  }
+ ]
+}

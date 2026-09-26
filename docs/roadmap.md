@@ -56,9 +56,9 @@ Ce qu'on en retient :
 
 | Phase | Statut |
 |---|---|
-| 1 — Mesurer « qui parle » | à faire |
+| 1 — Mesurer « qui parle » | **livrée** le 2026-09-26 (`docs/specs/banc-voix.md`) : bien à 2 personnes et sur AMI 17 min (8,4 %), **fusion de voix** dès 4 personnes en réunion courte (40 à 42 %) et avec musique |
 | 2 — Transcription propre | **livrée** le 2026-09-26 (`docs/specs/transcription-propre.md`), sauf la densité des chapitres, à discuter |
-| 3 — Nemotron | à faire, décidée par la phase 1 |
+| 3 — Nemotron | à faire : **justifiée par la phase 1** (réunions courtes à plusieurs, musique) ; seuils du banc à relever si elle améliore |
 | 4 — Deux pistes | à faire |
 | 5 — Cartes AMD / Intel | reportée |
 

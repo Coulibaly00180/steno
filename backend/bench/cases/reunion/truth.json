@@ -1,0 +1,162 @@
+{
+ "language": "fr",
+ "speakers": [
+  "Claire",
+  "Karim",
+  "Sophie",
+  "Pierre"
+ ],
+ "duration": 118.45,
+ "lines": [
+  {
+   "speaker": "Claire",
+   "start": 1.0,
+   "end": 7.559,
+   "text": "Bonjour à tous. Je propose qu'on commence par l'avancement du site, puis le recrutement, et on finit par les questions diverses."
+  },
+  {
+   "speaker": "Karim",
+   "start": 8.159,
+   "end": 17.192,
+   "text": "Pour le site, la nouvelle page d'accueil est en ligne depuis lundi. Les premiers retours sont plutôt bons."
+  },
+  {
+   "speaker": "Sophie",
+   "start": 17.692,
+   "end": 22.349,
+   "text": "On a surtout remarqué que les visiteurs restent plus longtemps sur la page des tarifs."
+  },
+  {
+   "speaker": "Karim",
+   "start": 21.749,
+   "end": 26.667,
+   "text": "Oui, presque deux fois plus longtemps."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 27.067,
+   "end": 31.865,
+   "text": "Est-ce qu'on a eu des problèmes sur les téléphones ? Un client m'a parlé d'un bouton qui ne répondait pas."
+  },
+  {
+   "speaker": "Karim",
+   "start": 32.365,
+   "end": 43.413,
+   "text": "C'était le bouton de contact sur les petits écrans. Il est corrigé depuis mardi soir."
+  },
+  {
+   "speaker": "Claire",
+   "start": 44.013,
+   "end": 47.356,
+   "text": "Très bien. Sophie, tu voulais parler des chiffres de fréquentation ?"
+  },
+  {
+   "speaker": "Sophie",
+   "start": 47.756,
+   "end": 54.226,
+   "text": "Oui. On est à douze mille visites sur la semaine, contre huit mille le mois dernier. La moitié vient des réseaux sociaux."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 53.426,
+   "end": 54.191,
+   "text": "C'est énorme."
+  },
+  {
+   "speaker": "Sophie",
+   "start": 54.526,
+   "end": 58.13,
+   "text": "Ça reste à confirmer sur un mois complet, mais la tendance est bonne."
+  },
+  {
+   "speaker": "Claire",
+   "start": 58.73,
+   "end": 62.421,
+   "text": "Passons au recrutement. Pierre, où en est-on pour le poste de développeur ?"
+  },
+  {
+   "speaker": "Pierre",
+   "start": 62.921,
+   "end": 69.474,
+   "text": "On a vu trois candidats cette semaine. Deux sont très solides, dont une personne qui a déjà travaillé sur des projets similaires."
+  },
+  {
+   "speaker": "Karim",
+   "start": 69.874,
+   "end": 74.107,
+   "text": "J'aimerais participer au deuxième entretien, pour la partie technique."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 74.507,
+   "end": 77.4,
+   "text": "Bien sûr, je t'envoie les créneaux cet après-midi."
+  },
+  {
+   "speaker": "Sophie",
+   "start": 78.0,
+   "end": 80.768,
+   "text": "Et pour l'alternance, est-ce qu'on relance l'annonce ?"
+  },
+  {
+   "speaker": "Claire",
+   "start": 81.268,
+   "end": 85.396,
+   "text": "Oui, relance-la, mais avec une date de début en février plutôt qu'en janvier."
+  },
+  {
+   "speaker": "Sophie",
+   "start": 85.796,
+   "end": 87.587,
+   "text": "D'accord, je m'en occupe demain."
+  },
+  {
+   "speaker": "Karim",
+   "start": 88.187,
+   "end": 93.392,
+   "text": "Une dernière chose : le serveur de test arrive en fin de garantie le mois prochain."
+  },
+  {
+   "speaker": "Claire",
+   "start": 92.892,
+   "end": 93.844,
+   "text": "Il faut le remplacer ?"
+  },
+  {
+   "speaker": "Karim",
+   "start": 94.144,
+   "end": 102.033,
+   "text": "Pas forcément. On peut passer sur une machine louée, ce serait même moins cher sur l'année."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 102.533,
+   "end": 105.857,
+   "text": "Tu peux nous faire une comparaison chiffrée pour la prochaine réunion ?"
+  },
+  {
+   "speaker": "Karim",
+   "start": 106.257,
+   "end": 110.07,
+   "text": "Oui, je prépare ça."
+  },
+  {
+   "speaker": "Claire",
+   "start": 110.67,
+   "end": 114.968,
+   "text": "Parfait. Merci à tous, on se retrouve jeudi prochain à la même heure."
+  },
+  {
+   "speaker": "Sophie",
+   "start": 115.368,
+   "end": 116.763,
+   "text": "Merci, bonne journée."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 116.463,
+   "end": 116.954,
+   "text": "À jeudi."
+  }
+ ]
+}

@@ -1,0 +1,94 @@
+{
+ "language": "fr",
+ "speakers": [
+  "Claire",
+  "Karim"
+ ],
+ "duration": 66.89,
+ "lines": [
+  {
+   "speaker": "Claire",
+   "start": 1.0,
+   "end": 5.003,
+   "text": "On peut commencer, même avec la musique ? Je t'entends assez bien de mon côté."
+  },
+  {
+   "speaker": "Karim",
+   "start": 5.603,
+   "end": 12.689,
+   "text": "Oui, ça va. Je voulais te parler de la présentation de jeudi pour le client."
+  },
+  {
+   "speaker": "Claire",
+   "start": 13.089,
+   "end": 14.395,
+   "text": "Vas-y, je t'écoute."
+  },
+  {
+   "speaker": "Karim",
+   "start": 14.895,
+   "end": 19.708,
+   "text": "Je pense qu'on devrait commencer par les résultats du trimestre, avant de parler du nouveau projet."
+  },
+  {
+   "speaker": "Claire",
+   "start": 20.208,
+   "end": 24.424,
+   "text": "Je suis d'accord. Les résultats sont bons, autant les mettre en avant dès le début."
+  },
+  {
+   "speaker": "Karim",
+   "start": 24.824,
+   "end": 29.111,
+   "text": "Ensuite on présente le calendrier, avec les trois étapes principales jusqu'au printemps."
+  },
+  {
+   "speaker": "Claire",
+   "start": 29.611,
+   "end": 32.116,
+   "text": "Et le budget ? Ils vont forcément poser la question."
+  },
+  {
+   "speaker": "Karim",
+   "start": 32.516,
+   "end": 37.046,
+   "text": "Je garde le budget pour la fin, avec deux scénarios, un prudent et un plus ambitieux."
+  },
+  {
+   "speaker": "Claire",
+   "start": 37.546,
+   "end": 41.364,
+   "text": "Parfait. Tu peux m'envoyer les diapositives demain matin pour que je les relise ?"
+  },
+  {
+   "speaker": "Karim",
+   "start": 41.764,
+   "end": 47.952,
+   "text": "Oui, avant dix heures. Je t'envoie aussi les notes pour l'oral."
+  },
+  {
+   "speaker": "Claire",
+   "start": 48.452,
+   "end": 51.964,
+   "text": "Merci. On fait une répétition mercredi en fin de journée ?"
+  },
+  {
+   "speaker": "Karim",
+   "start": 52.364,
+   "end": 55.432,
+   "text": "Mercredi dix-sept heures, ça me va très bien."
+  },
+  {
+   "speaker": "Claire",
+   "start": 55.932,
+   "end": 59.229,
+   "text": "Super, je réserve la salle. À mercredi alors."
+  },
+  {
+   "speaker": "Karim",
+   "start": 59.629,
+   "end": 65.39,
+   "text": "À mercredi, bonne soirée."
+  }
+ ]
+}

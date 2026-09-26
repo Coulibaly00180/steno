@@ -47,3 +47,24 @@ jobs:
         run: docker compose -f compose.yaml -f compose.gpu.yaml config -q
       - name: Validate test Compose file
         run: docker compose -f compose.test.yaml config -q
+
+  bench:
+    # Voices bench (backend/bench/README.md): who speaks and what Whisper hears,
+    # on generated French meetings and the first 5 minutes of a real AMI
+    # meeting. Fails below backend/bench/thresholds.json.
+    name: Voices bench (Docker, Whisper small on CPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      # Whisper small and the AMI meeting, downloaded once.
+      - name: Restore the bench downloads
+        uses: actions/cache@v4
+        with:
+          path: .bench-cache
+          key: bench-small-ami-ES2004a
+      - name: Run the bench
+        run: docker compose -f compose.test.yaml run --rm bench
+      - name: Tear down
+        if: always()
+        run: docker compose -f compose.test.yaml down -v

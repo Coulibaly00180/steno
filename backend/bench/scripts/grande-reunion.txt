@@ -1,0 +1,22 @@
+# Six personnes, un point d'équipe où chacun parle à son tour, avec quelques réactions.
+Claire|0.5|Bonjour à tous. Chacun fait un tour rapide de ses sujets, et on garde dix minutes pour les questions à la fin.
+Pierre|0.5|Je commence. Le devis pour le client de Lyon est parti hier. Ils doivent nous répondre avant la fin du mois, et j'ai bon espoir.
+Karim|0.5|De mon côté, la migration de la base de données est terminée. On a eu une coupure de dix minutes dimanche, rien de grave.
+Sophie|0.5|Pour le marketing, la lettre d'information de septembre est prête. Elle part mardi à neuf heures, à environ quatre mille contacts.
+Marc|0.5|Moi, je suis toujours sur le dossier de subvention. Il manque deux pièces justificatives, je relance la comptabilité aujourd'hui.
+Lina|0.5|Et pour le support, on a traité soixante demandes cette semaine. La plupart concernent la nouvelle facturation.
+Claire|-0.4|Soixante, c'est beaucoup.
+Lina|0.3|Oui, les clients ne comprennent pas le nouveau format des factures. Je propose d'ajouter une page d'explication sur le site.
+Sophie|0.5|Je peux t'aider pour la page, on a déjà des illustrations qui pourraient servir.
+Karim|0.5|Et on pourrait ajouter un lien direct dans le courriel qui accompagne chaque facture.
+Marc|0.5|Attention, le modèle du courriel est validé par le service juridique. Il faudra leur redemander leur accord.
+Pierre|0.5|Je connais bien la personne qui s'en occupe, je peux lui en parler cette semaine.
+Lina|0.4|Merci, ça nous ferait gagner du temps. On pourrait viser la fin du mois pour tout mettre en ligne.
+Claire|0.6|Très bien. Marc, pour la subvention, quelle est la date limite ?
+Marc|0.5|Le quinze octobre. Si les pièces arrivent cette semaine, on sera largement dans les temps.
+Karim|0.5|Tu as besoin des chiffres d'utilisation du service ? Je peux les sortir en une heure.
+Marc|0.4|Oui, volontiers, ça renforcerait le dossier. Envoie-les-moi quand tu peux.
+Sophie|0.5|Dernier point pour moi : la vidéo de présentation est en montage, on aura une première version lundi.
+Lina|0.5|On pourra l'utiliser aussi pour le support, pour montrer les premiers pas dans l'application.
+Pierre|0.5|Bonne idée. Et on pourrait l'envoyer au client de Lyon avec la relance du devis.
+Claire|0.6|Parfait. Merci à tous, c'était efficace. On se retrouve la semaine prochaine.

@@ -1,0 +1,21 @@
+# Deux personnes, un point budget. Format : personne|pause en secondes après la ligne précédente (négative : elles parlent en même temps)|texte
+Claire|0.5|Bonjour Pierre, merci d'avoir pris un moment pour faire le point sur le budget du trimestre.
+Pierre|0.6|Avec plaisir. J'ai préparé les chiffres ce matin, on est un peu au-dessus de ce qu'on avait prévu.
+Claire|0.4|De combien, à peu près ?
+Pierre|0.5|Environ huit pour cent sur le marketing, surtout à cause du salon de septembre.
+Claire|-0.4|D'accord.
+Pierre|0.3|Le reste tient, les frais de déplacement ont même baissé grâce aux réunions à distance.
+Claire|0.6|C'est une bonne nouvelle. Est-ce qu'on peut compenser le salon sur le quatrième trimestre ?
+Pierre|0.5|Je pense que oui, si on repousse la campagne d'affichage prévue en novembre.
+Claire|0.4|Je préfère éviter de toucher à la campagne, elle est déjà signée avec l'agence.
+Pierre|0.5|Alors il faudrait réduire les achats de matériel, on avait prévu de renouveler les ordinateurs portables.
+Claire|0.3|Combien d'ordinateurs ?
+Pierre|0.4|Douze, pour l'équipe commerciale. On pourrait en acheter six maintenant et six au printemps.
+Claire|0.6|Ça me paraît raisonnable. Tu peux préparer une nouvelle version du tableau avec ce scénario ?
+Pierre|0.4|Oui, je te l'envoie demain avant midi, avec les deux options côte à côte.
+Claire|-0.3|Parfait.
+Pierre|0.4|Et pour le recrutement du stagiaire, on garde la date de janvier ?
+Claire|0.5|Oui, on garde janvier. Le poste est déjà publié et on a reçu une quinzaine de candidatures.
+Pierre|0.5|Très bien. Je bloque le budget correspondant dans le tableau.
+Claire|0.6|Merci Pierre. On refait un point la semaine prochaine, même heure.
+Pierre|0.4|Entendu, à la semaine prochaine.

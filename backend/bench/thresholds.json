@@ -1,0 +1,10 @@
+{
+ "_comment": "Mesure de départ (2026-09-26, sherpa-onnx pyannote + TitaNet, Whisper small sur CPU) moins une marge : le banc bloque les reculs. À relever quand une amélioration est livrée (feuille de route n° 3, phase 3).",
+ "dialogue": {"max": {"speaker_error": 0.03}, "min": {"words_found": 0.95, "person": 0.97}, "all_voices": true},
+ "bruit": {"max": {"speaker_error": 0.06}, "min": {"words_found": 0.9, "person": 0.95}, "all_voices": true},
+ "reunion": {"max": {"speaker_error": 0.45}, "min": {"words_found": 0.85, "person": 0.48}},
+ "grande-reunion": {"max": {"speaker_error": 0.47}, "min": {"words_found": 0.82, "person": 0.5}},
+ "musique": {"max": {"speaker_error": 0.45}, "min": {"words_found": 0.78, "person": 0.45}},
+ "silence": {"max": {"lines": 0}},
+ "ami-ES2004a-5min": {"max": {"speaker_error": 0.2}, "min": {"person": 0.9}}
+}

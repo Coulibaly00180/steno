@@ -1,0 +1,88 @@
+{
+ "language": "fr",
+ "speakers": [
+  "Pierre",
+  "Sophie"
+ ],
+ "duration": 52.58,
+ "lines": [
+  {
+   "speaker": "Pierre",
+   "start": 1.0,
+   "end": 5.51,
+   "text": "Bonjour Sophie, désolé pour le bruit, je suis dans la salle avec la ventilation."
+  },
+  {
+   "speaker": "Sophie",
+   "start": 6.11,
+   "end": 10.065,
+   "text": "Pas de souci, je t'entends quand même. Tu voulais qu'on parle des fournisseurs ?"
+  },
+  {
+   "speaker": "Pierre",
+   "start": 10.565,
+   "end": 15.435,
+   "text": "Oui. On a reçu trois devis pour l'impression des catalogues, et les écarts sont importants."
+  },
+  {
+   "speaker": "Sophie",
+   "start": 15.835,
+   "end": 17.048,
+   "text": "Quel est le moins cher ?"
+  },
+  {
+   "speaker": "Pierre",
+   "start": 17.548,
+   "end": 22.428,
+   "text": "Celui de l'imprimerie de Nantes, mais leur délai est de six semaines, c'est trop long pour le salon."
+  },
+  {
+   "speaker": "Sophie",
+   "start": 22.928,
+   "end": 24.134,
+   "text": "Et les deux autres ?"
+  },
+  {
+   "speaker": "Pierre",
+   "start": 24.534,
+   "end": 28.067,
+   "text": "Quatre semaines pour les deux, avec environ quinze pour cent d'écart de prix."
+  },
+  {
+   "speaker": "Sophie",
+   "start": 28.567,
+   "end": 32.608,
+   "text": "Je préfère payer un peu plus et être sûrs d'avoir les catalogues à temps."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 33.008,
+   "end": 36.843,
+   "text": "C'est aussi mon avis. Je peux leur demander s'ils acceptent un paiement en deux fois."
+  },
+  {
+   "speaker": "Sophie",
+   "start": 37.343,
+   "end": 40.821,
+   "text": "Bonne idée. Et vérifie qu'ils livrent directement sur le stand."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 41.221,
+   "end": 44.993,
+   "text": "D'accord, je les appelle demain matin et je te fais un retour avant midi."
+  },
+  {
+   "speaker": "Sophie",
+   "start": 45.493,
+   "end": 49.408,
+   "text": "Parfait. Merci Pierre, et bon courage avec la ventilation."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 49.808,
+   "end": 51.081,
+   "text": "Merci, à demain."
+  }
+ ]
+}

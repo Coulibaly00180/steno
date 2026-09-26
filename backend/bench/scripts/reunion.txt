@@ -1,0 +1,26 @@
+# Quatre personnes, un comité projet, avec des interruptions.
+Claire|0.5|Bonjour à tous. Je propose qu'on commence par l'avancement du site, puis le recrutement, et on finit par les questions diverses.
+Karim|0.6|Pour le site, la nouvelle page d'accueil est en ligne depuis lundi. Les premiers retours sont plutôt bons.
+Sophie|0.5|On a surtout remarqué que les visiteurs restent plus longtemps sur la page des tarifs.
+Karim|-0.6|Oui, presque deux fois plus longtemps.
+Pierre|0.4|Est-ce qu'on a eu des problèmes sur les téléphones ? Un client m'a parlé d'un bouton qui ne répondait pas.
+Karim|0.5|C'était le bouton de contact sur les petits écrans. Il est corrigé depuis mardi soir.
+Claire|0.6|Très bien. Sophie, tu voulais parler des chiffres de fréquentation ?
+Sophie|0.4|Oui. On est à douze mille visites sur la semaine, contre huit mille le mois dernier. La moitié vient des réseaux sociaux.
+Pierre|-0.8|C'est énorme.
+Sophie|0.3|Ça reste à confirmer sur un mois complet, mais la tendance est bonne.
+Claire|0.6|Passons au recrutement. Pierre, où en est-on pour le poste de développeur ?
+Pierre|0.5|On a vu trois candidats cette semaine. Deux sont très solides, dont une personne qui a déjà travaillé sur des projets similaires.
+Karim|0.4|J'aimerais participer au deuxième entretien, pour la partie technique.
+Pierre|0.4|Bien sûr, je t'envoie les créneaux cet après-midi.
+Sophie|0.6|Et pour l'alternance, est-ce qu'on relance l'annonce ?
+Claire|0.5|Oui, relance-la, mais avec une date de début en février plutôt qu'en janvier.
+Sophie|0.4|D'accord, je m'en occupe demain.
+Karim|0.6|Une dernière chose : le serveur de test arrive en fin de garantie le mois prochain.
+Claire|-0.5|Il faut le remplacer ?
+Karim|0.3|Pas forcément. On peut passer sur une machine louée, ce serait même moins cher sur l'année.
+Pierre|0.5|Tu peux nous faire une comparaison chiffrée pour la prochaine réunion ?
+Karim|0.4|Oui, je prépare ça.
+Claire|0.6|Parfait. Merci à tous, on se retrouve jeudi prochain à la même heure.
+Sophie|0.4|Merci, bonne journée.
+Pierre|-0.3|À jeudi.

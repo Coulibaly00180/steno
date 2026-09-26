@@ -44,12 +44,27 @@ services:
       RUN_REDIS_TESTS: "1"
     volumes:
       - ./backend:/app
-    command: sh -c "python -m pyflakes app migrations && python -m pytest -q -p no:cacheprovider tests"
+    command: sh -c "python -m pyflakes app migrations bench && python -m pytest -q -p no:cacheprovider tests"
     depends_on:
       postgres-test:
         condition: service_healthy
       redis-test:
         condition: service_healthy
+
+  # Voices bench (feuille de route n° 3, phase 1, backend/bench/README.md): the
+  # application image, because the diarization models are baked into it; the
+  # code is mounted. Whisper and the AMI meeting are downloaded once to .bench-cache.
+  bench:
+    build: ./backend
+    environment:
+      DATA_DIR: /tmp/bench-data
+      HF_HOME: /cache/huggingface
+      BENCH_CACHE: /cache/bench
+    volumes:
+      - ./backend:/app
+      - ./.bench-cache:/cache
+    command: python -m bench.run --ami --check
+    profiles: ["bench"]
 
   frontend-tests:
     image: node:22-alpine

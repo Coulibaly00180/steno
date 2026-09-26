@@ -1,0 +1,15 @@
+# Deux personnes pendant qu'une musique passe en fond (un appel dans un café, une vidéo avec un fond musical).
+Claire|0.5|On peut commencer, même avec la musique ? Je t'entends assez bien de mon côté.
+Karim|0.6|Oui, ça va. Je voulais te parler de la présentation de jeudi pour le client.
+Claire|0.4|Vas-y, je t'écoute.
+Karim|0.5|Je pense qu'on devrait commencer par les résultats du trimestre, avant de parler du nouveau projet.
+Claire|0.5|Je suis d'accord. Les résultats sont bons, autant les mettre en avant dès le début.
+Karim|0.4|Ensuite on présente le calendrier, avec les trois étapes principales jusqu'au printemps.
+Claire|0.5|Et le budget ? Ils vont forcément poser la question.
+Karim|0.4|Je garde le budget pour la fin, avec deux scénarios, un prudent et un plus ambitieux.
+Claire|0.5|Parfait. Tu peux m'envoyer les diapositives demain matin pour que je les relise ?
+Karim|0.4|Oui, avant dix heures. Je t'envoie aussi les notes pour l'oral.
+Claire|0.5|Merci. On fait une répétition mercredi en fin de journée ?
+Karim|0.4|Mercredi dix-sept heures, ça me va très bien.
+Claire|0.5|Super, je réserve la salle. À mercredi alors.
+Karim|0.4|À mercredi, bonne soirée.
