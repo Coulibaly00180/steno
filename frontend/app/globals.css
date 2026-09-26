@@ -184,3 +184,17 @@
 /* Time per stage */
 .performance-table td:nth-child(3){width:35%}.share-bar{display:block;height:6px;border-radius:3px;background:var(--accent);opacity:.7;min-width:2px}.performance-total td{font-weight:600;border-top:1px solid var(--border-strong)}
 .load-more{display:flex;justify-content:center;margin:16px 0}
+
+/* Ollama catalog */
+.ollama-catalog{margin-top:18px;border-top:1px solid var(--border);padding-top:14px}
+.catalog-filters{flex-wrap:wrap;gap:8px;margin:8px 0 10px}.catalog-filters input{flex:1;min-width:220px;border:1px solid var(--border);border-radius:8px;background:var(--bg);padding:7px 10px;font-size:13px}
+.catalog-list{list-style:none;margin:0;padding:0;max-height:560px;overflow:auto;border:1px solid var(--border);border-radius:10px}
+.catalog-list>li{border-bottom:1px solid var(--border)}.catalog-list>li:last-child{border-bottom:0}
+.catalog-model{display:flex;flex-direction:column;gap:3px;width:100%;text-align:left;border:0;background:transparent;padding:10px 12px;cursor:pointer;color:var(--text)}
+.catalog-model:hover,.catalog-model[aria-expanded=true]{background:var(--surface-2)}
+.catalog-name{display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:13.5px}
+.catalog-chip{font-size:11px;padding:1px 7px;border-radius:6px;background:var(--accent-subtle);color:var(--accent)}
+.catalog-description{font-size:12.5px;color:var(--text-2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.catalog-variants{width:calc(100% - 24px);margin:0 12px 12px;border-collapse:collapse;font-size:12.5px}
+.catalog-variants td{padding:6px 6px;border-top:1px solid var(--border);vertical-align:middle}
+.catalog-variants .pill{margin-left:6px}

@@ -43,7 +43,7 @@ from .analysis_options import (
     split_stored_terms,
     whisper_terms,
 )
-from . import ai_models, app_settings, auth, backups, entities, portable, quality, url_import, watch_folder
+from . import ai_models, app_settings, auth, backups, entities, ollama_catalog, portable, quality, url_import, watch_folder
 from .config import QUEUE_NAME, settings
 from .learning import corrections_between, record_corrections, replacement_pair
 from .learning import dismiss as dismiss_suggestion
@@ -2842,9 +2842,71 @@ def choose_models(payload: ModelSettings):
     return {"llm_model": ai_models.llm_model(), "whisper_model": ai_models.whisper_model()}
 
 
+# Video memory a language model needs at Sténo's 32k context, from its file size
+# (estimate): measured 11.3 GB for qwen3:8b (a 5.2 GB file).
+VRAM_PER_FILE_BYTE = 1.3
+VRAM_CONTEXT_BYTES = 4 * 1024 ** 3
+# Left to the desktop, the live transcription and Whisper's own buffers.
+VRAM_RESERVED_BYTES = 2 * 1024 ** 3
+
+
+def _catalog_redis():
+    return Redis.from_url(settings.redis_url, socket_connect_timeout=2, socket_timeout=5)
+
+
+def _installed_names() -> set[str]:
+    try:
+        return {row["name"] for row in _installed_models()}
+    except Exception:
+        return set()
+
+
+@app.get("/models/catalog")
+def models_catalog(refresh: bool = False):
+    """The models of ollama.com (fetched every 6 hours), those installed marked; cloud-only models left out."""
+    result = ollama_catalog.library(_catalog_redis(), refresh=refresh)
+    installed = {name.split(":")[0] for name in _installed_names()}
+    result["models"] = [
+        model | {"installed": model["name"] in installed}
+        for model in result["models"]
+        # Sténo runs everything on this computer: a model served only by Ollama's cloud is of no use.
+        if not ("cloud" in model["capabilities"] and not model["sizes"])
+    ]
+    return result
+
+
+@app.get("/models/catalog/{name}")
+def model_catalog_tags(name: str):
+    """The variants of one model, their size, and whether they fit in this computer's graphics card."""
+    try:
+        result = ollama_catalog.model_tags(_catalog_redis(), name)
+    except ollama_catalog.CatalogError as exc:
+        raise HTTPException(404 if "introuvable" in str(exc) else 503, str(exc)) from exc
+    gpu = _redis_json(GPU_KEY) or {}
+    total = (gpu.get("memory_total_mb") or 0) * 1024 ** 2
+    installed = _installed_names()
+    tags = []
+    for tag in result["tags"]:
+        size = tag.get("size_bytes")
+        needed = int(size * VRAM_PER_FILE_BYTE + VRAM_CONTEXT_BYTES) if size else None
+        tags.append(tag | {
+            "installed": tag["name"] in installed or (tag["name"].endswith(":latest") and tag["name"][:-7] in installed),
+            "vram_bytes": needed,
+            "fits": None if not needed or not total else needed <= total - VRAM_RESERVED_BYTES,
+        })
+    return result | {"tags": tags, "gpu_memory_bytes": total or None}
+
+
 @app.post("/models/llm/pull")
 async def pull_model(payload: ModelPullIn):
-    """Download a model into Ollama, as Server-Sent Events: `progress` {status, completed, total}, then `done` or `error`."""
+    """Download a model into Ollama, as Server-Sent Events: `progress` {status, completed, total}, then `done` or `error`.
+
+    The name is checked against Ollama's registry first: a model withdrawn or
+    mistyped is refused at once, instead of a download that fails.
+    """
+    found = await run_in_threadpool(ollama_catalog.exists, payload.name)
+    if found is False:
+        raise HTTPException(422, f"« {payload.name} » n'existe pas dans le catalogue d'Ollama (retiré, ou nom mal saisi)")
 
     async def events():
         try:

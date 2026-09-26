@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, formatBytes } from "../../lib/api";
 import { pullModel, type Pull } from "../../lib/models";
 import PerformancePanel from "../../components/PerformancePanel";
+import OllamaCatalog from "../../components/OllamaCatalog";
 import QualityPanel from "../../components/QualityPanel";
 
 type Installed = { name: string; size_bytes: number | null; parameter_size: string | null; quantization: string | null; family: string | null; embedding: boolean };
@@ -30,7 +31,6 @@ export default function ModelsPage() {
   const [llmResults, setLlmResults] = useState<Record<string, LlmResult>>({});
   const [whisperResults, setWhisperResults] = useState<Record<string, WhisperResult>>({});
   const [pulls, setPulls] = useState<Record<string, Pull>>({});
-  const [customName, setCustomName] = useState("");
 
   const load = useCallback(async () => {
     try { setOverview(await api<Overview>("/models")); setError(""); }
@@ -146,14 +146,13 @@ export default function ModelsPage() {
           </div>}
         </li>;
       })}</ul>
-      <p className="field-label">Autres modèles</p>
+      <p className="field-label">Recommandés pour Sténo</p>
       <ul className="model-list compact">{overview.suggestions.filter(suggestion => !suggestion.installed).map(suggestion => <li key={suggestion.name}>
         <div className="model-name"><strong>{suggestion.name}</strong><span className="field-hint">{suggestion.vram} · {suggestion.note}</span></div>
         <button type="button" className="btn small" onClick={() => void download(suggestion.name)} disabled={!!pulls[suggestion.name] && !pulls[suggestion.name].error}>Télécharger</button>
         {pullRow(suggestion.name)}
       </li>)}</ul>
-      <div className="row custom-model"><input value={customName} onChange={event => setCustomName(event.target.value)} placeholder="Autre modèle Ollama (ex. llama3.1:8b)" aria-label="Nom d'un modèle Ollama" maxLength={120} /><button type="button" className="btn small" onClick={() => { const name = customName.trim(); if (name) { void download(name); setCustomName(""); } }} disabled={!customName.trim()}>Télécharger</button></div>
-      {Object.keys(pulls).filter(name => !overview.suggestions.some(item => item.name === name)).map(name => <div key={name}><span className="field-hint">{name}</span>{pullRow(name)}</div>)}
+      <OllamaCatalog onDownload={name => void download(name)} progress={pullRow} busy={name => !!pulls[name] && !pulls[name].error} />
     </section>
 
     <section className="card settings-section">

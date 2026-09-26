@@ -70,6 +70,14 @@ def free_transcription_slot(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def known_models(monkeypatch):
+    """Every model exists for the tests: the check against Ollama's registry never goes to the network."""
+    from app import ollama_catalog
+
+    monkeypatch.setattr(ollama_catalog, "exists", lambda name: True)
+
+
+@pytest.fixture(autouse=True)
 def open_access(monkeypatch):
     """No password (n°15) unless a test sets one: the access check never reads the database."""
     from app import auth
