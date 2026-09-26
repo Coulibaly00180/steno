@@ -114,7 +114,10 @@ def fingerprint(db) -> tuple[str, str]:
         json.dumps(_template_prompts(db), sort_keys=True, ensure_ascii=False),
     ])
     prompt_hash = hashlib.sha256(prompts.encode("utf-8")).hexdigest()
-    full = "|".join([prompt_hash, ai_models.llm_model(), ai_models.whisper_model(), str(settings.llm_num_ctx)])
+    from .transcription import TRANSCRIPTION_VERSION
+
+    full = "|".join([prompt_hash, ai_models.llm_model(), ai_models.whisper_model(), str(settings.llm_num_ctx),
+                     f"transcription{TRANSCRIPTION_VERSION}"])
     return hashlib.sha256(full.encode("utf-8")).hexdigest(), prompt_hash[:8]
 
 
@@ -201,7 +204,9 @@ def _update(run_id: str, **fields) -> None:
 
 def _transcript_cache(key: str, whisper: str) -> Path:
     safe = re.sub(r"[^A-Za-z0-9.-]+", "_", whisper)
-    return corpus_dir() / ".cache" / f"{key}--{safe}--beam{settings.whisper_beam_size}.json"
+    from .transcription import TRANSCRIPTION_VERSION
+
+    return corpus_dir() / ".cache" / f"{key}--{safe}--beam{settings.whisper_beam_size}--v{TRANSCRIPTION_VERSION}.json"
 
 
 def transcript_for(key: str, media: Path, on_progress=None, on_wait=None, check=None) -> dict:

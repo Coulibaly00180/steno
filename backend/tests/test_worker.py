@@ -345,7 +345,9 @@ def test_long_videos_are_reduced_in_groups_before_the_final_summary(worker_envir
 
     class ManySegments:
         def transcribe(self, *args, **kwargs):
-            segments = [SimpleNamespace(start=float(i), end=float(i + 1), text=f"Phrase {i} " * 20) for i in range(40)]
+            # Long lines of varied words (a word group repeated in a row is a Whisper loop, collapsed since phase 2).
+            segments = [SimpleNamespace(start=float(i), end=float(i + 1), text=f"Phrase {i} : " + " ".join(f"point{k}" for k in range(30)))
+                        for i in range(40)]
             return iter(segments), SimpleNamespace(language="fr")
 
     monkeypatch.setattr(worker, "get_whisper_model", lambda: ManySegments())

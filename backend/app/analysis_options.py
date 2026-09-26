@@ -163,6 +163,12 @@ def whisper_initial_prompt(terms: list[str]) -> str | None:
     return f"Termes : {', '.join(kept)}." if kept else None
 
 
+def whisper_hotwords(terms: list[str]) -> str | None:
+    """The same terms for every 30 s window (the prompt only reaches the first; see transcribe_windows)."""
+    kept = whisper_terms(terms)
+    return " ".join(kept) if kept else None
+
+
 def llm_terms(terms: list[str]) -> list[str]:
     return _terms_within(terms, LLM_VOCABULARY_MAX_CHARS)
 

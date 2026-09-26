@@ -57,7 +57,7 @@ Ce qu'on en retient :
 | Phase | Statut |
 |---|---|
 | 1 — Mesurer « qui parle » | à faire |
-| 2 — Transcription propre | à faire (mesure préalable faite le 2026-09-26) |
+| 2 — Transcription propre | **livrée** le 2026-09-26 (`docs/specs/transcription-propre.md`), sauf la densité des chapitres, à discuter |
 | 3 — Nemotron | à faire, décidée par la phase 1 |
 | 4 — Deux pistes | à faire |
 | 5 — Cartes AMD / Intel | reportée |

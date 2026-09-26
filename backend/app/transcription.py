@@ -9,6 +9,7 @@ seconds, so that no word is cut in half.
 """
 import logging
 import os
+import re
 import threading
 import time
 import wave
@@ -30,6 +31,36 @@ _FUNCTION_WORDS = frozenset(
     "alors mais donc et ou où on si va le la les un une des de du au aux en ce ça c ne pas je tu il elle nous vous ils elles "
     "y a à est sont que qui quoi oui non bon ben euh hein voilà the a an and or of to is it so yes no".split()
 )
+
+# Bumped when the transcription itself changes: the quality runs (n°4)
+# transcribe the reference corpus again instead of reusing their cache.
+TRANSCRIPTION_VERSION = 2
+
+# What Whisper invents over silence or music, learned from subtitled videos
+# (feuille de route n° 3, phase 2; measured on the corpus: six « Merci. » of
+# exactly one second over the closing music of clip-fr). Credits are never
+# said in a meeting: always dropped. Stock phrases can be (« merci d'avoir
+# regardé » closes a real talk): dropped only when Whisper itself doubted
+# there was any speech.
+_CREDITS = re.compile(
+    r"sous-?titr\w*\s+(?:réalisés?\s+|faits?\s+)?par|amara\.org|sous-?titrage\s+st'?\s*\d+|subtitles?\s+by|"
+    r"untertitel\s+(?:im\s+auftrag|von)|titulky\s+vytvořil|ondertiteld\s+door",
+    re.IGNORECASE,
+)
+_STOCK = re.compile(
+    r"^(?:merci(?:\s+beaucoup)?|merci\s+d'avoir\s+regardé(?:\s+cette\s+vidéo)?|abonnez-vous(?:\s+à\s+la\s+chaîne)?|"
+    r"n'oubliez\s+pas\s+de\s+vous\s+abonner|thank\s+you(?:\s+very\s+much)?|thanks(?:\s+for\s+watching)?|"
+    r"thank\s+you\s+for\s+watching|please\s+subscribe|bye(?:\s+bye)?)[\s.!?…]*$",
+    re.IGNORECASE,
+)
+# Whisper's own estimate that a segment holds no speech, above which a stock phrase is dropped.
+NO_SPEECH_STOCK = 0.5
+# A word group repeated this many times in a row is a loop, not a way of speaking
+# (« non, non, non » stays: three times).
+LOOP_REPEATS = 4
+LOOP_MAX_WORDS = 6
+# Identical lines kept in a row: two « Merci. » can be two people; six are a loop.
+MAX_IDENTICAL_LINES = 2
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +158,7 @@ def transcribe_windows(
     window_seconds: float = WINDOW_SECONDS,
     heartbeat: Callable[[], None] | None = None,
     doubts: list | None = None,
+    hotwords: str | None = None,
 ) -> tuple[list[tuple[float, float, str]], str | None]:
     """Transcribe window by window; return (start, end, text) rows and the language.
 
@@ -135,12 +167,20 @@ def transcribe_windows(
 
     `doubts`: when given, word timings are asked for, and it receives one list per
     row of its doubtful words, as [start, end, probability %] character ranges.
+
+    Each segment is decoded without the previous one's text as context: with
+    it, Whisper locked onto a line and repeated it (corpus: 5 repeated lines on
+    clip-fr, 2 on reunion-fr; none without). The vocabulary then goes in as
+    `hotwords` too, which reach every 30 s window, where `initial_prompt` only
+    reaches the first one: measured on 48 occurrences of three rare terms,
+    16/16, 16/16 and 16/16 with both, against 6, 2 and 1 with the prompt alone.
     """
     rows: list[tuple[float, float, str]] = []
     detected = language
     for offset, end, audio in iter_audio_windows(audio_path, window_seconds):
         segments, info = model.transcribe(
             audio, beam_size=beam_size, vad_filter=True, language=detected, initial_prompt=initial_prompt,
+            condition_on_previous_text=False, hotwords=hotwords,
             **({"word_timestamps": True} if doubts is not None else {}),
         )
         if detected is None:
@@ -148,8 +188,9 @@ def transcribe_windows(
         for segment in segments:
             if heartbeat:
                 heartbeat()
-            text = segment.text.strip()
-            if text:
+            text = collapse_loops(segment.text.strip())
+            if text and not is_invented(text, getattr(segment, "no_speech_prob", 0.0) or 0.0) \
+                    and not repeats_previous(rows, text):
                 rows.append((offset + float(segment.start), offset + float(segment.end), text))
                 if doubts is not None:
                     doubts.append(doubtful_words(segment, text))
@@ -158,6 +199,50 @@ def transcribe_windows(
         if on_progress:
             on_progress(end)
     return rows, detected
+
+
+def is_invented(text: str, no_speech_prob: float) -> bool:
+    """A line Whisper made up: subtitle credits, or a stock phrase where it heard no speech."""
+    if _CREDITS.search(text):
+        return True
+    return no_speech_prob > NO_SPEECH_STOCK and bool(_STOCK.match(text))
+
+
+def collapse_loops(text: str) -> str:
+    """A word group repeated LOOP_REPEATS times or more in a row, kept once."""
+    words = text.split()
+    if len(words) < LOOP_REPEATS:
+        return text
+    fold = [word.casefold().strip(".,;:!?…") for word in words]
+    kept: list[str] = []
+    index = 0
+    while index < len(words):
+        collapsed = False
+        for size in range(1, LOOP_MAX_WORDS + 1):
+            unit = fold[index:index + size]
+            if len(unit) < size:
+                break
+            count = 1
+            while fold[index + count * size:index + (count + 1) * size] == unit:
+                count += 1
+            if count >= LOOP_REPEATS:
+                # The last repetition is kept: its punctuation ends the phrase.
+                kept.extend(words[index + (count - 1) * size:index + count * size])
+                index += count * size
+                collapsed = True
+                break
+        if not collapsed:
+            kept.append(words[index])
+            index += 1
+    return " ".join(kept)
+
+
+def repeats_previous(rows: list[tuple[float, float, str]], text: str) -> bool:
+    """True when the MAX_IDENTICAL_LINES rows before already say exactly this."""
+    if len(rows) < MAX_IDENTICAL_LINES:
+        return False
+    key = text.casefold()
+    return all(row[2].casefold() == key for row in rows[-MAX_IDENTICAL_LINES:])
 
 
 def doubtful_words(segment, text: str, threshold: float = DOUBT_PROBABILITY) -> list[list[int]]:

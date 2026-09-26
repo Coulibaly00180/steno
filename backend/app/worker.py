@@ -20,6 +20,7 @@ from .analysis_options import (
     language_name,
     llm_terms,
     split_stored_terms,
+    whisper_hotwords,
     whisper_initial_prompt,
     word_budget,
 )
@@ -1034,6 +1035,7 @@ def run_pipeline(job_id: str) -> None:
                             audio_path,
                             language=forced_language,
                             initial_prompt=whisper_initial_prompt(vocabulary),
+                            hotwords=whisper_hotwords(vocabulary),
                             beam_size=settings.whisper_beam_size,
                             on_progress=report,
                             heartbeat=watchdog.beat,
