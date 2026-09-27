@@ -2,7 +2,6 @@ import gc
 import hashlib
 import json
 import logging
-import math
 import re
 import subprocess
 import uuid
@@ -383,13 +382,18 @@ def valid_chapters(raw: list[tuple[str, str]], time_range: tuple[float, float] |
 
 
 def chapter_limit(duration_seconds: float) -> int:
-    """How many chapters a video deserves: ~3 x sqrt(minutes), between 3 and 40.
+    """How many chapters a video deserves: one every 5 minutes, up to 10 for a short one, between 2 and 30.
 
-    4 for 90 s, 10 for 11 min, 23 for 1 h, 40 for 3 h and more. The model is
-    left free to be detailed; this caps the result (it tends to split one
-    subject into "presentation of X" and "analysis of X").
+    2 for 90 s, 10 for 11 to 54 min, 12 for 1 h, 30 for 2 h 30 and more. The
+    model is left free to be detailed; this caps the result (it tends to split
+    one subject into "presentation of X" and "analysis of X").
+
+    It was ~3 x sqrt(minutes), 3 to 40: 21 chapters for a 51-minute meeting,
+    six of them in its last six minutes (docs/specs/chapitres.md). A short,
+    dense video keeps up to one a minute: 10 laptops in 11 minutes, one each.
     """
-    return max(3, min(40, round(3 * math.sqrt(max(0.0, duration_seconds) / 60))))
+    minutes = max(0.0, duration_seconds) / 60
+    return max(2, min(30, max(round(minutes / 5), min(10, round(minutes)))))
 
 
 def keep_main_chapters(chapters: list[tuple[float, str]], limit: int) -> list[tuple[float, str]]:

@@ -306,7 +306,9 @@ def test_extra_chapters_are_merged_into_the_previous_section():
     assert worker.keep_main_chapters(chapters, limit=10) == chapters
 
 
-@pytest.mark.parametrize(("minutes", "limit"), [(0.5, 3), (1.5, 4), (11, 10), (60, 23), (180, 40), (360, 40)])
+@pytest.mark.parametrize(("minutes", "limit"), [
+    (0.5, 2), (3, 3), (11, 10), (30, 10), (51, 10), (60, 12), (90, 18), (180, 30), (360, 30),
+])
 def test_chapter_limit_grows_with_duration(minutes, limit):
     assert worker.chapter_limit(minutes * 60) == limit
 
