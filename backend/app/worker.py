@@ -34,12 +34,12 @@ from .models import (
 )
 from .diarization import assign_speakers, diarize
 from .retrieval import build_passages, embed_texts, record_index_failure, transcript_hash, write_index
-from .speakers import apply_turns, build_transcript, speaker_labels
+from .speakers import apply_sides, apply_turns, build_transcript, speaker_labels
 from .storage import StorageError, can_compact, compact_to_audio, delete_media
 from .gpu_slot import transcription_slot
 from .transcription import StallWatchdog, transcribe_windows
 from .utils import ffprobe_duration, split_text, timestamp
-from . import actions, ai_models, clips, entities, stage_times, url_import
+from . import actions, ai_models, clips, entities, sides, stage_times, url_import
 
 _whisper_model = None
 
@@ -66,6 +66,7 @@ ERROR_SUMMARY_FAILED = "Échec de la génération du résumé"
 ERROR_TRANSCRIPTION_STALLED = "La transcription s'est bloquée ; relancez le traitement"
 ERROR_INDEX_FAILED = "Échec de l'indexation pour les questions"
 ERROR_DIARIZATION_FAILED = "Échec de l'identification des intervenants"
+ERROR_SIDES_SOURCE_MISSING = "L'enregistrement d'origine, nécessaire pour séparer votre micro de l'autre côté, a été supprimé"
 ERROR_COMPACT_FAILED = "Échec de la conversion en audio seul"
 ERROR_ENTITIES_FAILED = "Échec du relevé des personnes, organisations et dates"
 NO_SPEECH_SUMMARY = "Aucun contenu parlé détecté."
@@ -679,6 +680,9 @@ def diarize_video(video_id: str, *, on_progress=None, job_id: str | None = None)
             raise PipelineError(ERROR_VIDEO_NOT_FOUND)
         audio_path = settings.audio_dir / f"{video.id}.wav"
         video_path, num_speakers = Path(video.path), video.num_speakers
+        two_sided = any(segment.side for segment in video.segments)
+    if two_sided:
+        return _diarize_sides(video_id, video_path, on_progress=on_progress, job_id=job_id)
     if not audio_path.is_file():
         if not video_path.is_file():
             raise PipelineError(ERROR_SOURCE_NOT_FOUND)
@@ -693,6 +697,36 @@ def diarize_video(video_id: str, *, on_progress=None, job_id: str | None = None)
             raise PipelineError(ERROR_VIDEO_NOT_FOUND)
         numbers = assign_speakers([(s.start_seconds, s.end_seconds) for s in video.segments], turns)
         apply_turns(db, video, numbers)
+        db.flush()
+        db.refresh(video)
+        video.transcript_text = build_transcript(video)
+        video.diarization_error = None
+        db.commit()
+        return len(video.speakers)
+
+
+def _diarize_sides(video_id: str, video_path: Path, *, on_progress=None, job_id: str | None = None) -> int:
+    """A two-sided recording (phase 4): the voices are told apart within each side, from its own track."""
+    if not video_path.is_file():
+        raise PipelineError(ERROR_SIDES_SOURCE_MISSING)
+    turns = {}
+    with sides.prepared(video_path) as prepared:
+        for index, (side, path) in enumerate(((sides.YOU, prepared.you), (sides.OTHERS, prepared.others))):
+            progress = sides.half_progress(on_progress, index, prepared.duration) if on_progress else None
+            turns[side] = diarize(path, on_progress=progress)
+            if job_id:
+                check_cancelled(job_id)
+    with SessionLocal() as db:
+        video = db.get(Video, video_id)
+        if not video:
+            raise PipelineError(ERROR_VIDEO_NOT_FOUND)
+        voices: list[int | None] = [None] * len(video.segments)
+        for side, side_turns in turns.items():
+            indices = [i for i, segment in enumerate(video.segments) if segment.side == side]
+            found = assign_speakers([(video.segments[i].start_seconds, video.segments[i].end_seconds) for i in indices], side_turns)
+            for i, voice in zip(indices, found):
+                voices[i] = voice
+        apply_sides(db, video, voices)
         db.flush()
         db.refresh(video)
         video.transcript_text = build_transcript(video)
@@ -985,6 +1019,7 @@ def run_pipeline(job_id: str) -> None:
             video_terms = split_stored_terms(video.vocabulary)
             glossary_terms = split_stored_terms(video.glossary_snapshot)
             wants_speakers = video.diarize and not video.speakers
+            audio_layout = video.audio_layout
         vocabulary = effective_vocabulary(video_terms, glossary_terms)
         prompt_vocabulary = llm_terms(vocabulary)
 
@@ -1002,6 +1037,8 @@ def run_pipeline(job_id: str) -> None:
             settings.audio_dir.mkdir(parents=True, exist_ok=True)
             set_job(job_id, stage="EXTRACTING_AUDIO", progress=7)
             _extract_audio(video_path, audio_path)
+            # Your microphone and the other side on two tracks (phase 4): each side transcribed on its own.
+            two_sided = audio_layout == "sides" and sides.is_two_sided(video_path)
 
             set_job(job_id, stage="TRANSCRIBING", progress=15)
             last_progress = 15
@@ -1028,19 +1065,24 @@ def run_pipeline(job_id: str) -> None:
                 )
                 # Window by window: decoding a whole 6-hour file at once needs ~5 GB of RAM.
                 doubts: list = []
+                side_of: list[str | None] = []
+                options = dict(
+                    language=forced_language,
+                    initial_prompt=whisper_initial_prompt(vocabulary),
+                    hotwords=whisper_hotwords(vocabulary),
+                    beam_size=settings.whisper_beam_size,
+                    on_progress=report,
+                    heartbeat=watchdog.beat,
+                    doubts=doubts,
+                )
                 try:
                     with watchdog:
-                        rows, detected = transcribe_windows(
-                            model,
-                            audio_path,
-                            language=forced_language,
-                            initial_prompt=whisper_initial_prompt(vocabulary),
-                            hotwords=whisper_hotwords(vocabulary),
-                            beam_size=settings.whisper_beam_size,
-                            on_progress=report,
-                            heartbeat=watchdog.beat,
-                            doubts=doubts,
-                        )
+                        if two_sided:
+                            sided, detected = sides.transcribe(model, video_path, **options)
+                            rows = [row[:3] for row in sided]
+                            side_of = [row[3] for row in sided]
+                        else:
+                            rows, detected = transcribe_windows(model, audio_path, **options)
                 finally:
                     release_whisper_model()
             transcript = "\n".join(f"[{timestamp(start)}] {text}" for start, _, text in rows)
@@ -1057,10 +1099,18 @@ def run_pipeline(job_id: str) -> None:
                 db.add_all([
                     TranscriptSegment(
                         video_id=video.id, start_seconds=s, end_seconds=e, text=t,
-                        doubts=json.dumps(words) if words else None,
+                        doubts=json.dumps(words) if words else None, side=side,
                     )
-                    for (s, e, t), words in zip(rows, doubts or [[]] * len(rows))
+                    for (s, e, t), words, side in zip(rows, doubts or [[]] * len(rows), side_of or [None] * len(rows))
                 ])
+                if side_of and not wants_speakers:
+                    # Each side is one speaker, « Vous » and « Participants », until voices are told apart.
+                    db.flush()
+                    db.refresh(video)
+                    apply_sides(db, video, [None] * len(rows))
+                    db.flush()
+                    db.refresh(video)
+                    video.transcript_text = transcript = build_transcript(video)
                 db.commit()
 
         if wants_speakers and transcript:

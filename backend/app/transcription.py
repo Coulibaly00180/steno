@@ -15,6 +15,7 @@ import time
 import wave
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -159,6 +160,7 @@ def transcribe_windows(
     heartbeat: Callable[[], None] | None = None,
     doubts: list | None = None,
     hotwords: str | None = None,
+    split_pauses: float | None = None,
 ) -> tuple[list[tuple[float, float, str]], str | None]:
     """Transcribe window by window; return (start, end, text) rows and the language.
 
@@ -174,6 +176,11 @@ def transcribe_windows(
     `hotwords` too, which reach every 30 s window, where `initial_prompt` only
     reaches the first one: measured on 48 occurrences of three rare terms,
     16/16, 16/16 and 16/16 with both, against 6, 2 and 1 with the prompt alone.
+
+    `split_pauses` (seconds, needs `doubts` for the word timings): a line is cut
+    where two of its words are further apart. One side of a call is mostly
+    silence, and Whisper joined two replies 8 s apart into one line, which then
+    came before the other side's words said in between.
     """
     rows: list[tuple[float, float, str]] = []
     detected = language
@@ -191,14 +198,36 @@ def transcribe_windows(
             text = collapse_loops(segment.text.strip())
             if text and not is_invented(text, getattr(segment, "no_speech_prob", 0.0) or 0.0) \
                     and not repeats_previous(rows, text):
-                rows.append((offset + float(segment.start), offset + float(segment.end), text))
-                if doubts is not None:
-                    doubts.append(doubtful_words(segment, text))
+                for start, stop, piece, part in split_at_pauses(segment, text, split_pauses):
+                    rows.append((offset + start, offset + stop, piece))
+                    if doubts is not None:
+                        doubts.append(doubtful_words(part, piece))
                 if on_progress:
                     on_progress(offset + float(segment.end))
         if on_progress:
             on_progress(end)
     return rows, detected
+
+
+def split_at_pauses(segment, text: str, pause: float | None) -> list[tuple[float, float, str, object]]:
+    """(start, end, text, words holder) pieces of a segment, cut where its words are more than `pause` apart."""
+    words = [word for word in getattr(segment, "words", None) or [] if (word.word or "").strip()]
+    whole = [(float(segment.start), float(segment.end), text, segment)]
+    if not pause or len(words) < 2:
+        return whole
+    groups: list[list] = [[words[0]]]
+    for word in words[1:]:
+        if float(word.start) - float(groups[-1][-1].end) > pause:
+            groups.append([])
+        groups[-1].append(word)
+    if len(groups) == 1:
+        return whole
+    pieces = []
+    for group in groups:
+        piece = collapse_loops("".join(word.word for word in group).strip())
+        if piece:
+            pieces.append((float(group[0].start), float(group[-1].end), piece, SimpleNamespace(words=group)))
+    return pieces or whole
 
 
 def is_invented(text: str, no_speech_prob: float) -> bool:

@@ -1,12 +1,14 @@
 import { API, responseError } from "./api";
 
 // n°10: what to record. "tab": the sound of a browser tab or window (a video call
-// in the browser); "both": that sound mixed with the microphone, so both sides of
-// a meeting are heard.
+// in the browser); "both": that sound and the microphone, on two channels
+// (feuille de route n° 3, phase 4): the microphone on the left, the tab on the
+// right, so the server knows which side said what and removes the echo.
 export type RecordingSource = "mic" | "tab" | "both";
 
 // `inputs`: the captured tracks; they end when the shared tab closes or the microphone is unplugged.
-export type Capture = { stream: MediaStream; inputs: MediaStreamTrack[]; level: AnalyserNode; stop: () => void };
+// `sides`: the stream is stereo, microphone left and tab right.
+export type Capture = { stream: MediaStream; inputs: MediaStreamTrack[]; level: AnalyserNode; sides: boolean; stop: () => void };
 
 // Opus in WebM (Chrome, Edge) or Ogg (Firefox), AAC in MP4 (Safari): all accepted by the API.
 const MIME_TYPES = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/mp4"];
@@ -49,12 +51,13 @@ async function tabAudio(): Promise<MediaStream> {
   return new MediaStream(display.getAudioTracks());
 }
 
-/** The stream to record, mixed through an AudioContext, with an analyser for the level meter. */
+/** The stream to record, through an AudioContext, with an analyser for the level meter. */
 export async function openCapture(source: RecordingSource): Promise<Capture> {
   const inputs: MediaStream[] = [];
+  let tab: MediaStream | null = null, mic: MediaStream | null = null;
   try {
-    if (source === "tab" || source === "both") inputs.push(await tabAudio());
-    if (source === "mic" || source === "both") inputs.push(await microphone());
+    if (source === "tab" || source === "both") { tab = await tabAudio(); inputs.push(tab); }
+    if (source === "mic" || source === "both") { mic = await microphone(); inputs.push(mic); }
   } catch (error) {
     inputs.forEach(stream => stream.getTracks().forEach(track => track.stop()));
     throw error;
@@ -63,15 +66,31 @@ export async function openCapture(source: RecordingSource): Promise<Capture> {
   const destination = context.createMediaStreamDestination();
   const level = context.createAnalyser();
   level.fftSize = 1024;
-  for (const input of inputs) {
-    const node = context.createMediaStreamSource(input);
-    node.connect(destination);
+  const sides = !!(tab && mic);
+  // Each side folded to mono first: a stereo tab must not spill into the microphone's channel.
+  const mono = (stream: MediaStream) => {
+    const node = context.createGain();
+    node.channelCount = 1;
+    node.channelCountMode = "explicit";
+    node.channelInterpretation = "speakers";
+    context.createMediaStreamSource(stream).connect(node);
     node.connect(level);
+    return node;
+  };
+  if (sides && tab && mic) {
+    destination.channelCount = 2;
+    const merger = context.createChannelMerger(2);
+    mono(mic).connect(merger, 0, 0);
+    mono(tab).connect(merger, 0, 1);
+    merger.connect(destination);
+  } else {
+    for (const input of inputs) mono(input).connect(destination);
   }
   return {
     stream: destination.stream,
     inputs: inputs.flatMap(input => input.getAudioTracks()),
     level,
+    sides,
     stop: () => {
       inputs.forEach(stream => stream.getTracks().forEach(track => track.stop()));
       // Called when stopping, then again when leaving the page.

@@ -49,6 +49,9 @@ class Video(Base):
     diarize: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     num_speakers: Mapped[int | None] = mapped_column(Integer, nullable=True)
     diarization_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # "sides" (feuille de route n° 3, phase 4): a recording with your microphone on
+    # the left channel and the other side's sound on the right (app.sides).
+    audio_layout: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # What happens to the media once processed (n°14): "keep", "audio" (compact
     # audio only) or "delete" (text only). See app.storage.
     source_policy: Mapped[str] = mapped_column(String(16), default="keep", server_default="keep")
@@ -119,10 +122,17 @@ class TranscriptSegment(Base):
     # Words Whisper was unsure of (n°1): JSON [[start, end, probability %], …] in `text`;
     # cleared when the line is corrected by hand.
     doubts: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # "you" or "others" in a two-sided recording (app.sides): the track the line was heard on.
+    side: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
 
 class Speaker(Base):
-    """A voice found in the video (n°8); `position` gives « Intervenant 1, 2… » until renamed."""
+    """A voice found in the video (n°8); `position` gives « Intervenant 1, 2… » until renamed.
+
+    In a two-sided recording, `side` is "you" or "others" and `side_position`
+    numbers the voices of that side (« Vous », « Vous 2 », « Participant 1 »…);
+    no `side_position`: the whole side, not split (« Vous », « Participants »).
+    """
 
     __tablename__ = "speakers"
     __table_args__ = (UniqueConstraint("video_id", "position", name="uq_speakers_video_position"),)
@@ -131,10 +141,18 @@ class Speaker(Base):
     video_id: Mapped[str] = mapped_column(ForeignKey("videos.id", ondelete="CASCADE"), index=True)
     position: Mapped[int] = mapped_column(Integer)
     name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    side: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    side_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     @property
     def label(self) -> str:
-        return self.name or f"Intervenant {self.position}"
+        if self.name:
+            return self.name
+        if self.side == "you":
+            return "Vous" if (self.side_position or 1) == 1 else f"Vous {self.side_position}"
+        if self.side == "others":
+            return f"Participant {self.side_position}" if self.side_position else "Participants"
+        return f"Intervenant {self.position}"
 
 
 class SummaryTemplate(Base):
@@ -279,6 +297,8 @@ class Recording(Base):
     title: Mapped[str] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(16), default="RECORDING")
     live: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # Microphone on the left channel, the tab's or the system's sound on the right (phase 4).
+    sides: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     mime_type: Mapped[str] = mapped_column(String(80))
     path: Mapped[str] = mapped_column(Text)
     size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)

@@ -22,6 +22,7 @@ Options de `bench.run` :
 | `--ami-minutes N` | durée d'AMI prise en compte (5 par défaut, 0 pour les 17 min) |
 | `--model NOM` | modèle Whisper (par défaut `WHISPER_MODEL`, `small` dans la pile de test) |
 | `--speakers-given` | mesure aussi l'erreur quand le nombre d'intervenants est donné |
+| `--mixed` | cas à deux côtés : pistes mélangées d'abord, comme avant la phase 4 |
 | `--engine nemotron\|sherpa` | moteur d'identification des voix (par défaut `DIARIZATION_ENGINE`, Nemotron) |
 | `--json FICHIER` | écrit les résultats, pour comparer deux versions |
 | `--check` | code de sortie 1 sous les seuils |
@@ -39,6 +40,8 @@ Le service `bench` utilise l'image de l'application, parce que les modèles d'id
 | **mots** | Mots du script retrouvés dans la transcription, accents ignorés (cas français). |
 | **bonne personne** | Mots de la transcription attribués à la bonne personne. |
 | **lignes** | Nombre de lignes de la transcription. Dans le cas « silence », il doit être à 0 : aucune phrase inventée. |
+| **bon côté** | Cas à deux côtés : mots de la transcription mis du bon côté (le vôtre ou celui des autres). |
+| **lignes d'écho** | Cas à deux côtés : lignes mises de votre côté alors que seul l'autre côté parlait (sa voix revenue par les haut-parleurs). Doit être à 0. |
 
 ## Les cas
 
@@ -50,18 +53,20 @@ Le service `bench` utilise l'image de l'application, parce que les modèles d'id
 | `musique` | Deux personnes avec une musique de fond |
 | `bruit` | Deux personnes avec un micro bruyant (bruit rose) |
 | `silence` | 20 s de bruit de pièce, sans parole |
+| `appel` | Une visioconférence en stéréo, comme un enregistrement « Les deux » : Claire au micro (gauche), Pierre et Sophie de l'autre côté (droite), avec un casque |
+| `appel-haut-parleurs` | La même, sans casque : l'autre côté revient dans le micro, 60 ms plus tard, au tiers de son niveau, étouffé |
 | `ami-ES2004a` | Une vraie réunion à quatre, en anglais : 5 minutes par défaut, 17 avec `--ami-minutes 0` |
 
 Chaque cas de `cases/` contient :
 
-- `audio.ogg` : Opus, 16 kHz mono ;
-- `truth.json` : chaque réplique avec son auteur, son début, sa fin et son texte.
+- `audio.ogg` : Opus, 16 kHz, mono (stéréo pour les cas à deux côtés) ;
+- `truth.json` : chaque réplique avec son auteur, son début, sa fin et son texte ; pour les cas à deux côtés, le côté de chaque personne (`sides`).
 
 ## Générer de nouveaux cas
 
 Les scripts sont dans `scripts/`. Une ligne s'écrit `personne|pause|texte`. La pause est le nombre de secondes après la fin de la réplique précédente ; une pause négative fait parler deux personnes en même temps.
 
-Pour régénérer les cas (les fichiers produits sont versionnés) :
+Pour régénérer les cas (les fichiers produits sont versionnés ; des noms de cas après `generate.py` ne produisent que ceux-là) :
 
 ```sh
 MSYS_NO_PATHCONV=1 docker run --rm -v "<dépôt>\\backend\\bench:/bench" python:3.12-slim sh -c "apt-get update -qq && apt-get install -y -qq ffmpeg >/dev/null && pip install -q piper-tts numpy && python /bench/generate.py"

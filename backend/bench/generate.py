@@ -10,6 +10,14 @@ committed, so running the bench needs none of this.
 
 A script line is `person|gap|text`; the gap is the seconds after the previous
 line ends, negative when they talk at the same time.
+
+Two-sided cases (feuille de route n° 3, phase 4) are stereo, like a recording
+in « micro + onglet » mode: the people of `you` on the left channel (the
+microphone), the others on the right (the tab). With `echo`, the right channel
+also comes back into the microphone, later, quieter and muffled, as through
+laptop speakers without a headset.
+
+    python /bench/generate.py appel appel-haut-parleurs     # only these cases
 """
 import json
 import random
@@ -43,7 +51,12 @@ CASES = {
     "musique": {"script": "musique.txt", "background": "music"},
     "bruit": {"script": "bruit.txt", "background": "noise"},
     "silence": {"script": None, "background": "room"},
+    "appel": {"script": "appel.txt", "background": None, "you": ["Claire"], "echo": False},
+    "appel-haut-parleurs": {"script": "appel.txt", "background": None, "you": ["Claire"], "echo": True},
 }
+# Through laptop speakers: the other side reaches the microphone 60 ms later, at a third of its level, muffled.
+ECHO_DELAY = 0.06
+ECHO_GAIN = 0.33
 
 
 def voice(name: str, cache: Path) -> Path:
@@ -110,6 +123,9 @@ def build(case: str, settings: dict, cache: Path, rng: np.random.Generator) -> N
         speakers.append(person)
         cursor = max(cursor, end)
     total = (cursor + 1.5) if lines else 20.0
+    if "you" in settings:
+        build_sides(case, settings, clips, truth, speakers, total, rng)
+        return
     mix = np.zeros(int(total * RATE), dtype=np.float32)
     for start, samples in clips:
         offset = int(start * RATE)
@@ -135,13 +151,46 @@ def build(case: str, settings: dict, cache: Path, rng: np.random.Generator) -> N
     print(f"{case}: {total:.0f} s, {len(set(speakers))} personnes, {len(truth)} lignes", flush=True)
 
 
+def build_sides(case: str, settings: dict, clips: list, truth: list, speakers: list, total: float,
+                rng: np.random.Generator) -> None:
+    """A stereo recording: the microphone (the people of `you`) left, the other side right."""
+    mic, remote = np.zeros(int(total * RATE), dtype=np.float32), np.zeros(int(total * RATE), dtype=np.float32)
+    for (start, samples), line in zip(clips, truth):
+        track = mic if line["speaker"] in settings["you"] else remote
+        offset = int(start * RATE)
+        track[offset:offset + len(samples)] += samples
+    if settings["echo"]:
+        delay = int(ECHO_DELAY * RATE)
+        muffled = np.convolve(remote, np.ones(6) / 6, mode="same")
+        mic[delay:] += ECHO_GAIN * muffled[:-delay]
+    mic += pink_noise(total, 0.005, rng)
+    mic, remote = (0.9 * track / max(1e-6, float(np.max(np.abs(track)))) for track in (mic, remote))
+    folder = HERE / "cases" / case
+    folder.mkdir(parents=True, exist_ok=True)
+    pcm = (np.stack([mic, remote], axis=1) * 32767).astype(np.int16).tobytes()
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "s16le", "-ar", str(RATE), "-ac", "2", "-i", "-",
+                    "-c:a", "libopus", "-b:a", "64k", str(folder / "audio.ogg")], input=pcm, check=True)
+    (folder / "truth.json").write_text(json.dumps({
+        "language": "fr",
+        "speakers": sorted(set(speakers), key=speakers.index),
+        "sides": {person: "you" if person in settings["you"] else "others" for person in set(speakers)},
+        "duration": round(total, 2),
+        "lines": truth,
+    }, ensure_ascii=False, indent=1, sort_keys=False), encoding="utf-8")
+    print(f"{case}: {total:.0f} s, stéréo, {len(set(speakers))} personnes, {len(truth)} lignes", flush=True)
+
+
 def main() -> None:
     cache = HERE / ".cache" / "voices"
     cache.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(4)
     random.seed(4)
+    wanted = sys.argv[1:] or list(CASES)
     for case, settings in CASES.items():
-        build(case, settings, cache, rng)
+        if case not in wanted:
+            continue
+        # The two-sided cases draw their own noise: adding them left the earlier cases as they were.
+        build(case, settings, cache, np.random.default_rng(7) if "you" in settings else rng)
 
 
 if __name__ == "__main__":

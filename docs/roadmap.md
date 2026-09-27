@@ -59,7 +59,7 @@ Ce qu'on en retient :
 | 1 — Mesurer « qui parle » | **livrée** le 2026-09-26 (`docs/specs/banc-voix.md`) : bien à 2 personnes et sur AMI 17 min (8,4 %), **fusion de voix** dès 4 personnes en réunion courte (40 à 42 %) et avec musique |
 | 2 — Transcription propre | **livrée** le 2026-09-26 (`docs/specs/transcription-propre.md`), sauf la densité des chapitres, à discuter |
 | 3 — Nemotron | **livrée** le 2026-09-26 (`docs/specs/nemotron.md`) : 4/4 et 6/6 voix trouvées (erreur 1,8 et 4,3 % au lieu de 40 et 42 %), musique 1,3 % au lieu de 40,8 %, AMI 17 min 8,0 % au lieu de 8,4 %, trois fois plus rapide ; seuils du banc relevés |
-| 4 — Deux pistes | à faire |
+| 4 — Deux pistes | **livrée** le 2026-09-27 (`docs/specs/deux-pistes.md`) : 100 % des mots du bon côté et 0 ligne d'écho sur `appel` et `appel-haut-parleurs` (10 lignes d'écho sans les filtres) ; reste un essai sur une vraie visioconférence |
 | 5 — Cartes AMD / Intel | reportée |
 
 ### Carte des dépendances
