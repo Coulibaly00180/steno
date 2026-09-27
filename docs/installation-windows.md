@@ -12,7 +12,7 @@ Le lanceur fait, dans l'ordre :
 | Étape | Ce qui se passe |
 |---|---|
 | Docker Desktop | Le lanceur vérifie que Docker est installé et démarré. S'il est absent, il propose de l'installer avec `winget`, sinon il ouvre la page de téléchargement. Il faut ensuite redémarrer l'ordinateur, ouvrir Docker Desktop une fois, puis relancer l'installation. |
-| Carte graphique | Le lanceur cherche une carte NVIDIA (`nvidia-smi`) et vérifie que Docker y accède. Avec 10 Go de mémoire vidéo ou plus, il choisit `qwen3:8b`, en dessous `qwen3:4b`. Sans carte utilisable, tout tourne sur le processeur (`qwen3:4b`, Whisper `small`). |
+| Carte graphique | Le lanceur cherche une carte NVIDIA (`nvidia-smi`) et vérifie que Docker y accède. Avec 10 Go de mémoire vidéo ou plus, il choisit `qwen3:8b`, en dessous `qwen3:4b`. Sans carte utilisable, tout tourne sur le processeur (`qwen3:4b`, Whisper `small`). Les cartes AMD et Intel ne sont pas encore utilisées (feuille de route n° 3, phase 5). |
 | Configuration | Le lanceur crée `.env` s'il n'existe pas (un `.env` existant est conservé) et note l'adresse de l'ordinateur sur le réseau local (`LAN_ADDRESS`). Il enregistre ses choix dans `.steno-launcher.json`. |
 | Construction | `docker compose … up -d --build`, avec la surcouche GPU si la carte est utilisable. Comptez 10 à 20 minutes la première fois. |
 | Modèles | Le lanceur télécharge le modèle de langage et celui de la recherche (plusieurs Go). Le modèle de transcription se télécharge à la première analyse. |

@@ -60,7 +60,7 @@ Ce qu'on en retient :
 | 2 — Transcription propre | **livrée** le 2026-09-26 (`docs/specs/transcription-propre.md`) ; densité des chapitres tranchée et livrée le 2026-09-27 (`docs/specs/chapitres.md`) |
 | 3 — Nemotron | **livrée** le 2026-09-26 (`docs/specs/nemotron.md`) : 4/4 et 6/6 voix trouvées (erreur 1,8 et 4,3 % au lieu de 40 et 42 %), musique 1,3 % au lieu de 40,8 %, AMI 17 min 8,0 % au lieu de 8,4 %, trois fois plus rapide ; seuils du banc relevés |
 | 4 — Deux pistes | **livrée** le 2026-09-27 (`docs/specs/deux-pistes.md`) : 100 % des mots du bon côté et 0 ligne d'écho sur `appel` et `appel-haut-parleurs` (10 lignes d'écho sans les filtres) ; reste un essai sur une vraie visioconférence |
-| 5 — Cartes AMD / Intel | reportée |
+| 5 — Cartes AMD / Intel | à faire (décidé le 2026-09-27) : commencer par l'étape 0 sur une machine AMD |
 
 ### Carte des dépendances
 
@@ -71,7 +71,7 @@ Phase 1 — Mesurer « qui parle »  ──┬──> Phase 3 — Nemotron (voix
 Phase 2 — Transcription propre <──┘     Phase 4 — Deux pistes à l'enregistrement
    (hallucinations)                        (utilise la phase 3 au sein de chaque côté)
 
-Phase 5 — Cartes AMD / Intel (Vulkan) : indépendante, optionnelle
+Phase 5 — Cartes AMD / Intel (Vulkan) : indépendante
 ```
 
 ### Phase 1 — Mesurer « qui parle » (indispensable, en premier)
@@ -161,18 +161,24 @@ Phase 5 — Cartes AMD / Intel (Vulkan) : indépendante, optionnelle
   - le son d'un onglet ne se capture que dans Chrome et Edge ; celui d'une application de bureau (Teams, Zoom) seulement en partageant l'écran entier avec le son du système, sous Windows. À expliquer dans l'interface ;
   - l'annulation d'écho du navigateur, déjà active, peut interagir avec le filtre : à mesurer.
 
-### Phase 5 — Cartes graphiques AMD et Intel (optionnelle, reportée)
+### Phase 5 — Cartes graphiques AMD et Intel
 
-- **Objectif** : accélérer la transcription au-delà des cartes NVIDIA.
-- **Livrable** : une étude seulement — whisper.cpp avec Vulkan comme second moteur de transcription, face à faster-whisper sur le corpus (vitesse, mots perdus ; voir la mesure des lots).
+- **Objectif** : accélérer la transcription au-delà des cartes NVIDIA. Aujourd'hui, sans carte NVIDIA, Whisper et Ollama tournent sur le processeur.
+- **Livrable** : d'abord une étude — whisper.cpp avec Vulkan comme second moteur de transcription, face à faster-whisper sur le corpus et le banc « voix » (vitesse, mots perdus, phrases inventées ; voir la mesure des lots). L'intégration seulement si l'étude la justifie.
+- **Démarche**, en s'arrêtant dès qu'une étape échoue :
+  0. **Faisabilité, sur une machine AMD ou Intel** (une demi-journée) : un conteneur voit-il la carte ? Sous Windows, Docker Desktop (WSL2) passe une carte NVIDIA aux conteneurs ; pour AMD et Intel, c'est à vérifier. Sans accès à la carte depuis Docker, la phase s'arrête là, quel que soit le moteur.
+  1. **Qualité de whisper.cpp**, mesurable sur le poste NVIDIA actuel (Vulkan y fonctionne aussi) : corpus de qualité, banc « voix », temps par étape.
+  2. **Décision** : qualité proche de faster-whisper et gain réel sur la carte AMD ou Intel → un réglage de moteur, faster-whisper par défaut (comme Nemotron et sherpa-onnx) ; sinon, la piste est documentée avec ses chiffres.
+- **Hors périmètre** : l'identification des voix, déjà sur le processeur (Nemotron, 17 min d'audio en 10 s) ; Ollama, qui gère certaines cartes AMD, pose la même question d'accès à la carte que l'étape 0.
 - **Dépendances** : aucune.
-- **Pourquoi reportée** : gros chantier (deux moteurs à maintenir), sans utilisateur AMD ou Intel identifié à ce jour.
+- **Risques** : deux moteurs de transcription à maintenir, à garder au niveau de faster-whisper (minutages par mot, mots douteux, filtre des phrases inventées, coupure aux silences) ; un processeur AMD ne suffit pas, c'est la carte graphique qui compte (une puce Radeon intégrée au processeur reste une piste, à mesurer).
+- **Historique** : reportée jusqu'au 2026-09-27, faute d'utilisateur AMD ou Intel.
 
 ### Indispensable ou optionnel
 
 | Indispensable | Recommandé | Optionnel ou reporté |
 |---|---|---|
-| Phase 1 (mesure), Phase 2 (hallucinations), Phase 3 (si la mesure le confirme) | Phase 4 (deux pistes) | Phase 5 (Vulkan) ; scripts d'« actions » personnels ; transcription par lots (problème noté dans `transcription-et-catalogue.md`) |
+| Phase 1 (mesure), Phase 2 (hallucinations), Phase 3 (si la mesure le confirme) | Phase 4 (deux pistes) ; Phase 5 (Vulkan, si l'étape 0 réussit) | Scripts d'« actions » personnels ; transcription par lots (problème noté dans `transcription-et-catalogue.md`) |
 
 ### Volontairement écarté
 
