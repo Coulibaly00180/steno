@@ -62,4 +62,4 @@ Le filtre est dans `transcription.py` :
 
 ## Reste à discuter
 
-La densité des chapitres : environ 3 × √(minutes) aujourd'hui, soit 21 pour la réunion de 51 minutes. omarchy-meeting-recorder vise un chapitre toutes les 5 à 10 minutes. C'est une question d'usage, pas de mesure.
+La densité des chapitres : environ 3 × √(minutes) aujourd'hui, soit 21 pour la réunion de 51 minutes. omarchy-meeting-recorder vise un chapitre toutes les 5 à 10 minutes. C'est une question d'usage, pas de mesure. Tranché le 2026-09-27 : `docs/specs/chapitres.md`.

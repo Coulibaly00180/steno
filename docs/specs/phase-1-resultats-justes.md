@@ -446,7 +446,7 @@ Décisions prises sur le corpus :
 |---|---|
 | Niveau court trop serré au-delà d'une heure : rubriques obligatoires tronquées | Court = 200 + 2,5 × D, plancher 200, **plafond 450** (miroir dans `frontend/lib/analysis.ts`) |
 | Résumés par bloc coupés à « [00: » ou sans aucun chapitre quand un seul appel demandait les deux | **Deux appels par bloc** : puces (température 0,1, consigne « synthétise, ne recopie pas »), puis chapitres (température 0) |
-| Trop de chapitres sur un contenu long | Limite selon la durée, clamp(3 × √minutes, 3, 40) ; le chapitre le plus proche de son prédécesseur est retiré en premier |
+| Trop de chapitres sur un contenu long | Limite selon la durée, clamp(3 × √minutes, 3, 40), remplacée le 2026-09-27 par un toutes les 5 min (`chapitres.md`) ; le chapitre le plus proche de son prédécesseur est retiré en premier |
 | Résumé final centré sur la fin du contenu | Consigne de couvrir toutes les plages, du début à la fin ; aucune mention de « bloc », « partie » ou « plage horaire » |
 | Liste « Chiffres clés » répétée en boucle (court, conférence de 3 h) | Suppression des puces déjà écrites (`drop_repeated_bullets`) |
 

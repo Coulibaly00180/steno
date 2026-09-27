@@ -67,7 +67,7 @@ Défauts trouvés et corrigés à cette occasion :
 | « Le bloc de discussion a confirmé… » : le libellé interne « ### Bloc n » fuyait dans le texte | Résumés intermédiaires étiquetés par leur plage horaire `### [hh:mm:ss] → [hh:mm:ss]` |
 | Chapitres supprimés sur les vidéos courtes (fusion sous 30 s) | Écart minimal ramené à 10 s ; consigne « un chapitre par sujet annoncé » |
 | Traduction plafonnée à 480 tokens (anomalie de la phase 1) | Budget proportionnel au bloc (`translation_token_budget`) et alerte en cas de coupure |
-| Chapitres trop nombreux sur un contenu dense (14 à 19 pour 11 min, un même produit coupé en « présentation » et « analyse ») | Nombre maximal selon la durée (~3 × √minutes : 4 pour 90 s, 10 pour 11 min, 23 pour 1 h, 40 au plus). Les chapitres en trop sont fusionnés avec celui qui les précède de plus près. Température 0 pour l'appel. Résultat : 10 chapitres, un par produit, identiques sur 3 essais. |
+| Chapitres trop nombreux sur un contenu dense (14 à 19 pour 11 min, un même produit coupé en « présentation » et « analyse ») | Nombre maximal selon la durée (~3 × √minutes : 4 pour 90 s, 10 pour 11 min, 23 pour 1 h, 40 au plus). Les chapitres en trop sont fusionnés avec celui qui les précède de plus près. Température 0 pour l'appel. Résultat : 10 chapitres, un par produit, identiques sur 3 essais. Règle remplacée le 2026-09-27 (un toutes les 5 min, jusqu'à 10 pour une vidéo courte : `chapitres.md`), qui garde ces 10 chapitres. |
 | Résumés par bloc trop courts pour un contenu dense | 8 puces par bloc (12 en détaillé) et consigne de couvrir chaque sujet distinct |
 
 ## Contenus longs et GPU (2026-09-23, corpus de référence)
