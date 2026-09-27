@@ -1,0 +1,124 @@
+{
+ "language": "fr",
+ "speakers": [
+  "Claire",
+  "Pierre",
+  "Sophie"
+ ],
+ "sides": {
+  "Sophie": "others",
+  "Claire": "you",
+  "Pierre": "others"
+ },
+ "duration": 60.02,
+ "lines": [
+  {
+   "speaker": "Claire",
+   "start": 1.0,
+   "end": 3.159,
+   "text": "Bonjour à tous les deux, vous m'entendez bien ?"
+  },
+  {
+   "speaker": "Pierre",
+   "start": 3.759,
+   "end": 6.38,
+   "text": "Oui, très bien. Sophie vient de nous rejoindre."
+  },
+  {
+   "speaker": "Sophie",
+   "start": 6.88,
+   "end": 11.106,
+   "text": "Bonjour Claire, désolée pour le retard, ma réunion précédente a débordé."
+  },
+  {
+   "speaker": "Claire",
+   "start": 11.506,
+   "end": 14.883,
+   "text": "Aucun souci. On fait le point sur le lancement du nouveau catalogue ?"
+  },
+  {
+   "speaker": "Pierre",
+   "start": 15.383,
+   "end": 19.226,
+   "text": "Les maquettes sont validées. Il reste les photos des produits à reprendre."
+  },
+  {
+   "speaker": "Claire",
+   "start": 19.726,
+   "end": 21.218,
+   "text": "Combien de photos exactement ?"
+  },
+  {
+   "speaker": "Pierre",
+   "start": 21.618,
+   "end": 24.495,
+   "text": "Une quarantaine, surtout pour la gamme de printemps."
+  },
+  {
+   "speaker": "Sophie",
+   "start": 23.995,
+   "end": 25.696,
+   "text": "Et les fiches techniques aussi."
+  },
+  {
+   "speaker": "Claire",
+   "start": 25.996,
+   "end": 29.974,
+   "text": "D'accord. Sophie, tu peux t'occuper des fiches techniques cette semaine ?"
+  },
+  {
+   "speaker": "Sophie",
+   "start": 30.474,
+   "end": 33.43,
+   "text": "Oui, je les envoie à l'imprimeur jeudi au plus tard."
+  },
+  {
+   "speaker": "Claire",
+   "start": 34.03,
+   "end": 37.459,
+   "text": "Parfait. Pierre, pour les photos, on garde le studio de Lyon ?"
+  },
+  {
+   "speaker": "Pierre",
+   "start": 37.959,
+   "end": 41.699,
+   "text": "Je préférerais celui de Grenoble, il est disponible dès lundi prochain."
+  },
+  {
+   "speaker": "Claire",
+   "start": 41.299,
+   "end": 42.996,
+   "text": "Très bien, va pour Grenoble."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 43.296,
+   "end": 46.588,
+   "text": "Je réserve la journée de lundi et je te confirme ce soir."
+  },
+  {
+   "speaker": "Sophie",
+   "start": 47.088,
+   "end": 50.719,
+   "text": "Il faudra aussi prévenir le service client de la date de sortie."
+  },
+  {
+   "speaker": "Claire",
+   "start": 51.119,
+   "end": 54.974,
+   "text": "Je leur écris cet après-midi. On se retrouve vendredi pour valider les épreuves."
+  },
+  {
+   "speaker": "Pierre",
+   "start": 55.374,
+   "end": 56.771,
+   "text": "Entendu, à vendredi."
+  },
+  {
+   "speaker": "Sophie",
+   "start": 57.071,
+   "end": 58.517,
+   "text": "Merci Claire, bonne journée."
+  }
+ ]
+}

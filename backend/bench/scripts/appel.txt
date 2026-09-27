@@ -1,0 +1,19 @@
+# Une visioconférence : Claire au micro (côté « vous »), Pierre et Sophie de l'autre côté (son de l'onglet).
+Claire|0.5|Bonjour à tous les deux, vous m'entendez bien ?
+Pierre|0.6|Oui, très bien. Sophie vient de nous rejoindre.
+Sophie|0.5|Bonjour Claire, désolée pour le retard, ma réunion précédente a débordé.
+Claire|0.4|Aucun souci. On fait le point sur le lancement du nouveau catalogue ?
+Pierre|0.5|Les maquettes sont validées. Il reste les photos des produits à reprendre.
+Claire|0.5|Combien de photos exactement ?
+Pierre|0.4|Une quarantaine, surtout pour la gamme de printemps.
+Sophie|-0.5|Et les fiches techniques aussi.
+Claire|0.3|D'accord. Sophie, tu peux t'occuper des fiches techniques cette semaine ?
+Sophie|0.5|Oui, je les envoie à l'imprimeur jeudi au plus tard.
+Claire|0.6|Parfait. Pierre, pour les photos, on garde le studio de Lyon ?
+Pierre|0.5|Je préférerais celui de Grenoble, il est disponible dès lundi prochain.
+Claire|-0.4|Très bien, va pour Grenoble.
+Pierre|0.3|Je réserve la journée de lundi et je te confirme ce soir.
+Sophie|0.5|Il faudra aussi prévenir le service client de la date de sortie.
+Claire|0.4|Je leur écris cet après-midi. On se retrouve vendredi pour valider les épreuves.
+Pierre|0.4|Entendu, à vendredi.
+Sophie|0.3|Merci Claire, bonne journée.

@@ -55,6 +55,8 @@ class SegmentOut(BaseModel):
     end_seconds: float
     text: str
     speaker_id: int | None = None
+    # "you" or "others" in a two-sided recording (phase 4).
+    side: str | None = None
     # Doubtful words (n°1): [start, end, probability %] in `text`.
     doubts: list[list[int]] = []
 
@@ -72,6 +74,7 @@ class SpeakerOut(BaseModel):
     position: int
     name: str | None
     label: str
+    side: str | None = None
     seconds: float
     share: float
 
@@ -178,6 +181,8 @@ class VideoDetail(VideoOut):
     diarize: bool = False
     num_speakers: int | None = None
     diarization_error: str | None = None
+    # "sides": a recording with your microphone and the other side on separate tracks (phase 4).
+    audio_layout: str | None = None
     # What happens to the media once processed (n°14): keep, audio, delete.
     source_policy: str = "keep"
     # Link the media was downloaded from (n°12).
@@ -341,6 +346,8 @@ class RecordingCreate(BaseModel):
     mime_type: str = Field(min_length=1, max_length=80)
     live: bool = False
     language: str | None = Field(default=None, max_length=8)
+    # « Micro + onglet » (phase 4): microphone on the left channel, the other side on the right.
+    sides: bool = False
 
 
 class RecordingOut(BaseModel):
@@ -350,6 +357,7 @@ class RecordingOut(BaseModel):
     title: str
     status: str
     live: bool
+    sides: bool = False
     mime_type: str
     size_bytes: int
     chunks: int

@@ -5,6 +5,7 @@
     options: --case NAME…  --ami  --ami-minutes N (5; 0: whole)  --model NAME (Whisper; default: WHISPER_MODEL)
              --speakers-given (also measure with the number of speakers given)  --json FILE  --check
              --engine nemotron|sherpa (who speaks; default: DIARIZATION_ENGINE)
+             --mixed (two-sided cases: mix both sides into one track first, as before phase 4)
 
 Columns:
 - erreur de personne: share of the speech of one person at a time that goes to
@@ -13,7 +14,11 @@ Columns:
 - voix: speakers found / speakers in the case;
 - mots: words of the script found in the transcript (the French cases);
 - bonne personne: words of the transcript put on the right person;
-- lignes: lines of the transcript (the silence case: must be 0).
+- lignes: lines of the transcript (the silence case: must be 0);
+- côté, écho (two-sided cases, feuille de route n° 3, phase 4): words of the
+  transcript on the right side (yours or the other one), and lines put on your
+  side while only the other side was talking (their voice coming back through
+  the speakers).
 
 The cases come from generate.py (committed); AMI ES2004a (a real four-person
 meeting in English, CC BY 4.0) is downloaded once into the cache, with its
@@ -40,7 +45,7 @@ CACHE = Path(os.environ.get("BENCH_CACHE", HERE / ".cache"))
 AMI_AUDIO = "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus/ES2004a/audio/ES2004a.Mix-Headset.wav"
 AMI_RTTM = "https://raw.githubusercontent.com/pyannote/AMI-diarization-setup/main/only_words/rttms/test/ES2004a.rttm"
 FRAME = 0.01
-CASES = ["dialogue", "reunion", "grande-reunion", "musique", "bruit", "silence"]
+CASES = ["dialogue", "reunion", "grande-reunion", "musique", "bruit", "silence", "appel", "appel-haut-parleurs"]
 
 
 def words(text: str) -> list[str]:
@@ -157,10 +162,59 @@ def text_scores(truth: dict, rows: list, numbers: list, mapping: dict) -> dict:
     return result
 
 
-def run_case(name: str, audio: Path, truth: dict, model, speakers_given: bool, engine: str | None = None) -> dict:
+def side_scores(truth: dict, rows: list, row_sides: list) -> dict:
+    """Words on the right side, and lines of yours heard while only the other side talked."""
+    right = counted = echo = 0
+    for (start, end, text), side in zip(rows, row_sides):
+        overlap = Counter()
+        for line in truth["lines"]:
+            shared = min(end, line["end"]) - max(start, line["start"])
+            if shared > 0:
+                overlap[truth["sides"][line["speaker"]]] += shared
+        if not overlap:
+            continue
+        n = len(words(text))
+        counted += n
+        right += n if side == overlap.most_common(1)[0][0] else 0
+        echo += side == "you" and "you" not in overlap
+    return {"side_right": round(right / counted, 4) if counted else None, "echo_lines": echo}
+
+
+def run_sides_case(name: str, audio: Path, truth: dict, model, engine: str | None) -> dict:
+    """A stereo call: each side transcribed and diarized on its own track, as the worker does (phase 4)."""
+    from app import sides
+    from app.config import settings
+    from app.diarization import Turn, assign_speakers, diarize
+
+    started = time.monotonic()
+    sided, _ = sides.transcribe(model, audio, language=truth["language"], initial_prompt=None,
+                                beam_size=settings.whisper_beam_size)
+    result: dict = {"case": name, "transcription_s": round(time.monotonic() - started, 1)}
+    rows, row_sides = [row[:3] for row in sided], [row[3] for row in sided]
+    started = time.monotonic()
+    turns, numbers = [], [None] * len(rows)
+    with sides.prepared(audio) as prepared:
+        # One label space for both sides: yours from 1, theirs from 101.
+        for side, path, base in ((sides.YOU, prepared.you, 0), (sides.OTHERS, prepared.others, 100)):
+            side_turns = [Turn(turn.start, turn.end, base + turn.speaker) for turn in diarize(path, engine=engine)]
+            turns += side_turns
+            indices = [i for i, s in enumerate(row_sides) if s == side]
+            for i, number in zip(indices, assign_speakers([rows[i][:2] for i in indices], side_turns)):
+                numbers[i] = number
+    result["diarization_s"] = round(time.monotonic() - started, 1)
+    scores = speaker_scores(truth, turns)
+    mapping = scores.pop("_mapping")
+    return result | scores | text_scores(truth, rows, numbers, mapping) | side_scores(truth, rows, row_sides)
+
+
+def run_case(name: str, audio: Path, truth: dict, model, speakers_given: bool, engine: str | None = None,
+             mixed: bool = False) -> dict:
     from app.config import settings
     from app.diarization import assign_speakers, diarize
     from app.transcription import transcribe_windows
+
+    if truth.get("sides") and not mixed:
+        return run_sides_case(name, audio, truth, model, engine)
 
     with tempfile.TemporaryDirectory() as folder:
         wav = Path(folder) / "audio.wav"
@@ -181,6 +235,10 @@ def run_case(name: str, audio: Path, truth: dict, model, speakers_given: bool, e
             if speakers_given:
                 given = speaker_scores(truth, diarize(wav, num_speakers=len(truth["speakers"]), engine=engine))
                 result["speaker_error_given"] = given["speaker_error"]
+            if truth.get("sides"):
+                # Mixed into one track: the side of a line is that of the person diarization put it on.
+                person_side = {label: truth["sides"][truth["speakers"][index]] for label, index in mapping.items()}
+                result |= side_scores(truth, rows, [person_side.get(number) for number in numbers])
         else:
             result["lines"] = len(rows)
     return result
@@ -216,6 +274,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--json", default=None)
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--engine", choices=["nemotron", "sherpa"], default=None)
+    parser.add_argument("--mixed", action="store_true")
     args = parser.parse_args(argv)
 
     import ctranslate2
@@ -243,12 +302,14 @@ def main(argv: list[str]) -> int:
     header = f"{'Cas':<22} {'erreur de personne':>19} {'voix':>6} {'mots':>8} {'bonne personne':>15} {'lignes':>7} {'durée':>8}"
     print(header, flush=True)
     for case, audio, truth in jobs:
-        result = run_case(case, audio, truth, model, args.speakers_given, engine)
+        result = run_case(case, audio, truth, model, args.speakers_given, engine, args.mixed)
         results.append(result)
         seconds = result.get("transcription_s", 0) + result.get("diarization_s", 0)
         print(f"{case:<22} {percent(result.get('speaker_error')):>19} {result.get('voices', '—'):>6} "
               f"{percent(result.get('words_found')):>8} {percent(result.get('person')):>15} {result.get('lines', '—'):>7} "
               f"{seconds:>6.0f} s", flush=True)
+        if result.get("side_right") is not None:
+            print(f"{'':<22} bon côté : {percent(result['side_right'])}, lignes d'écho : {result['echo_lines']}", flush=True)
         if args.speakers_given and result.get("speaker_error_given") is not None:
             print(f"{'':<22} nombre de voix donné : {percent(result['speaker_error_given'])}", flush=True)
     if args.json:

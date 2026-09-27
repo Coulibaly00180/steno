@@ -678,7 +678,8 @@ def import_settings(
     )
 
 
-def create_import(destination: Path, original_filename: str, options: ImportSettings, video_id: str) -> ProcessingJob:
+def create_import(destination: Path, original_filename: str, options: ImportSettings, video_id: str,
+                  audio_layout: str | None = None) -> ProcessingJob:
     """Probe the stored file, create the video and its job, queue it.
 
     The caller owns `destination`: it removes it (upload) or sets it aside
@@ -693,7 +694,7 @@ def create_import(destination: Path, original_filename: str, options: ImportSett
         raise HTTPException(400, f"Durée maximale: {settings.max_video_hours:g} heures")
     return queue_import(
         video_id, options, filename=destination.name, original_filename=original_filename, path=str(destination),
-        duration_seconds=duration, size_bytes=destination.stat().st_size,
+        duration_seconds=duration, size_bytes=destination.stat().st_size, audio_layout=audio_layout,
     )
 
 
@@ -877,6 +878,7 @@ def get_video(video_id: str):
             "diarize": video.diarize,
             "num_speakers": video.num_speakers,
             "diarization_error": video.diarization_error,
+            "audio_layout": video.audio_layout,
             "source_policy": video.source_policy,
             "source_url": video.source_url,
             "speakers": speakers_payload(video),
@@ -2276,7 +2278,8 @@ def start_recording(payload: RecordingCreate):
     path.touch()
     now = utcnow()
     recording = Recording(
-        id=recording_id, title=payload.title, status="RECORDING", live=payload.live, mime_type=payload.mime_type,
+        id=recording_id, title=payload.title, status="RECORDING", live=payload.live, sides=payload.sides,
+        mime_type=payload.mime_type,
         path=str(path), size_bytes=0, chunks=0, language=language, created_at=now, updated_at=now,
     )
     with SessionLocal() as db:
@@ -2353,7 +2356,7 @@ async def finish_recording(recording_id: str, payload: ImportOptionsIn):
             raise HTTPException(409, "Cet enregistrement est déjà terminé")
         if not recording.size_bytes:
             raise HTTPException(409, "L'enregistrement est vide")
-        source, title = Path(recording.path), recording.title
+        source, title, sides = Path(recording.path), recording.title, recording.sides
     video_id = str(uuid.uuid4())
     suffix = ".m4a" if source.suffix == ".mp4" else ".ogg"
     destination = settings.uploads_dir / f"{video_id}{suffix}"
@@ -2364,7 +2367,9 @@ async def finish_recording(recording_id: str, payload: ImportOptionsIn):
         logger.warning("Unable to remux recording %s", recording_id, exc_info=True)
         raise HTTPException(422, "L'enregistrement est illisible ; il est conservé, vous pouvez réessayer ou l'abandonner") from exc
     try:
-        job = await run_in_threadpool(create_import, destination, _filename_for(title, suffix), options, video_id)
+        job = await run_in_threadpool(
+            create_import, destination, _filename_for(title, suffix), options, video_id, "sides" if sides else None,
+        )
     except BaseException:
         destination.unlink(missing_ok=True)
         raise

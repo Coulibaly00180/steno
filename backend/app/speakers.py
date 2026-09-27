@@ -49,11 +49,39 @@ def speakers_payload(video: Video) -> list[dict]:
             "position": speaker.position,
             "name": speaker.name,
             "label": speaker.label,
+            "side": speaker.side,
             "seconds": round(seconds.get(speaker.id, 0.0), 1),
             "share": round(seconds.get(speaker.id, 0.0) / total, 3),
         }
         for speaker in video.speakers
     ]
+
+
+def apply_sides(db, video: Video, voice_per_segment: list[int | None]) -> None:
+    """Speakers of a two-sided recording (phase 4): each line's side comes from its track.
+
+    `voice_per_segment`: the voice within the line's side (1, 2… from a
+    diarization of that side), or None when the side was not split. Your side
+    comes first: « Vous », « Vous 2 »…; then « Participant 1, 2… », or
+    « Participants » for an unsplit other side.
+    """
+    for segment in video.segments:
+        segment.speaker_id = None
+    video.speakers.clear()
+    db.flush()
+    created: dict[tuple[str, int | None], Speaker] = {}
+    for side in ("you", "others"):
+        voices = [voice for segment, voice in zip(video.segments, voice_per_segment) if segment.side == side]
+        ordered = sorted({voice for voice in voices if voice is not None}) or ([None] if voices else [])
+        for rank, voice in enumerate(ordered, 1):
+            created[(side, voice)] = Speaker(
+                video_id=video.id, position=len(created) + 1, side=side, side_position=rank if voice is not None else None,
+            )
+    video.speakers.extend(created.values())
+    db.flush()
+    for segment, voice in zip(video.segments, voice_per_segment):
+        speaker = created.get((segment.side, voice)) if segment.side else None
+        segment.speaker_id = speaker.id if speaker else None
 
 
 def apply_turns(db, video: Video, speaker_per_segment: list[int | None]) -> None:

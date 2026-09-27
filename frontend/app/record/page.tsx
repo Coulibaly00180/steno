@@ -8,7 +8,7 @@ import { sourceLanguages, sourcePolicies, summaryLengths, targetLanguages, type 
 import { CHUNK_MS, ChunkUploader, openCapture, pickMimeType, readLevel, recordingSupported, tabCaptureSupported, type Capture, type RecordingSource } from "../../lib/recorder";
 import { useSystemStatus } from "../../lib/status";
 
-type Recording = { id: string; title: string; status: string; live: boolean; size_bytes: number; live_error: string | null; created_at: string; updated_at: string };
+type Recording = { id: string; title: string; status: string; live: boolean; sides?: boolean; size_bytes: number; live_error: string | null; created_at: string; updated_at: string };
 type Template = { id: string; name: string; is_default: boolean };
 type LiveLine = { start: number; end: number; text: string };
 type Phase = "idle" | "starting" | "recording" | "paused" | "finishing";
@@ -16,7 +16,7 @@ type Phase = "idle" | "starting" | "recording" | "paused" | "finishing";
 const sources: { value: RecordingSource; label: string; hint: string }[] = [
   { value: "mic", label: "Micro", hint: "Une réunion en salle, une dictée, un entretien." },
   { value: "tab", label: "Son d'un onglet ou d'une fenêtre", hint: "Une visioconférence ouverte dans le navigateur : choisissez son onglet et cochez « Partager l'audio »." },
-  { value: "both", label: "Les deux", hint: "Une visioconférence : vos interlocuteurs (onglet) et vous (micro)." },
+  { value: "both", label: "Les deux", hint: "Une visioconférence : vous (micro) et vos interlocuteurs (onglet), gardés sur deux pistes. La transcription sait qui parle de quel côté, et l'écho de vos haut-parleurs est retiré. Le son d'un onglet se partage dans Chrome et Edge ; pour une application de bureau (Teams, Zoom), partagez l'écran entier avec le son du système (Windows)." },
 ];
 
 function defaultTitle() {
@@ -113,7 +113,7 @@ export default function RecordPage() {
     try {
       capture = await openCapture(source);
       const live = liveWanted && liveAvailable;
-      const recording = await api<Recording>("/recordings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title.trim() || defaultTitle(), mime_type: mimeType, live, language: language || null }) });
+      const recording = await api<Recording>("/recordings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title.trim() || defaultTitle(), mime_type: mimeType, live, language: language || null, sides: capture.sides }) });
       const uploader = new ChunkUploader(recording.id, () => setUploadTick(value => value + 1));
       const recorder = new MediaRecorder(capture.stream, { mimeType, audioBitsPerSecond: 64000 });
       recorder.ondataavailable = event => uploader.push(event.data);
@@ -205,7 +205,7 @@ export default function RecordPage() {
         <div className="field"><label htmlFor="record-template">Template de résumé</label><select id="record-template" value={templateId} onChange={event => setTemplateId(event.target.value)}><option value="">Par défaut</option>{templates.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
         <div className="field"><label htmlFor="record-length">Longueur du résumé</label><select id="record-length" value={summaryLength} onChange={event => setSummaryLength(event.target.value as SummaryLength)}>{summaryLengths.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
         <div className="field"><label htmlFor="record-policy">Après l&apos;analyse</label><select id="record-policy" value={sourcePolicy} onChange={event => setSourcePolicy(event.target.value as SourcePolicy)}>{sourcePolicies.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></div>
-        <div className="field record-diarize"><label className="checkbox"><input type="checkbox" checked={diarize} onChange={event => setDiarize(event.target.checked)} /><span>Identifier les intervenants</span></label></div>
+        <div className="field record-diarize"><label className="checkbox"><input type="checkbox" checked={diarize} onChange={event => setDiarize(event.target.checked)} /><span>{source === "both" ? "Distinguer plusieurs voix de chaque côté" : "Identifier les intervenants"}</span></label></div>
       </div>
       <p className="field-hint">Prévenez les participants avant d&apos;enregistrer. L&apos;audio part au fil de l&apos;eau vers votre installation Sténo, jamais ailleurs : si l&apos;onglet se ferme, ce qui a été enregistré est conservé.</p>
       <div className="form-actions"><span /><button type="button" className="btn primary" onClick={() => void start()} disabled={!supported || phase === "starting"}><Icon name="mic" size={15} />{phase === "starting" ? "Préparation…" : "Démarrer l'enregistrement"}</button></div>

@@ -6,5 +6,7 @@
  "grande-reunion": {"max": {"speaker_error": 0.08}, "min": {"words_found": 0.8, "person": 0.93}, "all_voices": true},
  "musique": {"max": {"speaker_error": 0.05}, "min": {"words_found": 0.78, "person": 0.95}, "all_voices": true},
  "silence": {"max": {"lines": 0}},
+ "appel": {"max": {"speaker_error": 0.05, "echo_lines": 0}, "min": {"words_found": 0.92, "person": 0.95, "side_right": 0.95}, "all_voices": true},
+ "appel-haut-parleurs": {"max": {"speaker_error": 0.05, "echo_lines": 0}, "min": {"words_found": 0.92, "person": 0.95, "side_right": 0.95}, "all_voices": true},
  "ami-ES2004a-5min": {"max": {"speaker_error": 0.14}, "min": {"person": 0.95}, "all_voices": true}
 }
