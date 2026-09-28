@@ -64,6 +64,33 @@ def test_final_summary_applies_the_whole_template_without_placeholders(monkeypat
     assert captured["kwargs"]["max_output_tokens"] == 610 * 2 + 150
 
 
+def test_long_content_gets_an_outline_section_first(monkeypatch):
+    captured = capture_completion(monkeypatch)
+    llm.final_summary("- bloc", "# Problème\n# Solution", "anglais", word_budget=1500, outline=True)
+    # « Déroulé » comes first among the imposed sections, with room for its bullets.
+    assert "# Déroulé, # Problème, # Solution" in captured["prompt"]
+    assert "Une puce par plage horaire" in captured["prompt"]
+    assert captured["kwargs"]["max_output_tokens"] == int(1500 * llm.OUTLINE_LENGTH_FACTOR) * 2 + 150
+    llm.final_summary("- bloc", "# Problème\n# Solution", "anglais", word_budget=1500)
+    assert "Déroulé" not in captured["prompt"] and captured["kwargs"]["max_output_tokens"] == 1500 * 2 + 150
+
+
+def test_the_outline_starts_at_eight_time_ranges(monkeypatch):
+    from app import worker
+
+    seen = []
+    monkeypatch.setattr(worker, "final_summary", lambda *args, outline=False, **kwargs: seen.append(outline) or "Résumé")
+    monkeypatch.setattr(worker, "summarize_chunk", lambda chunk, language, **kwargs: llm.ChunkSummary(text="- point"))
+    # One block per chunk: 7 then 8 of them, all fitting the final prompt.
+    for blocks in (7, 8):
+        text = "\n".join(f"[{worker.timestamp(i * 600)}] " + "mot " * 10 for i in range(blocks))
+        monkeypatch.setattr(worker, "split_text", lambda source, size, blocks=blocks: source.splitlines())
+        worker.compose_summary(source_text=text, output_language="français", summary_length="standard",
+                               duration_seconds=blocks * 600, template_prompt="# Résumé", custom_prompt=None,
+                               vocabulary=[])
+    assert seen == [False, True]
+
+
 def test_final_summary_adds_user_instructions_to_the_template(monkeypatch):
     captured = capture_completion(monkeypatch)
 
@@ -135,8 +162,8 @@ def test_detailed_block_summaries_are_longer(monkeypatch):
     llm.summarize_chunk("texte", "français")
     llm.summarize_chunk("texte", "français", detailed=True)
     # Two calls per block: summary, then chapters.
-    assert "au plus 8 puces" in calls[0][0] and calls[0][1]["max_output_tokens"] == 420
-    assert "au plus 12 puces" in calls[2][0] and calls[2][1]["max_output_tokens"] == 620
+    assert "au plus 8 puces" in calls[0][0] and calls[0][1]["max_output_tokens"] == 600
+    assert "au plus 12 puces" in calls[2][0] and calls[2][1]["max_output_tokens"] == 880
     assert "Couvre chaque sujet distinct" in calls[0][0]
     assert "ne recopie pas la transcription phrase par phrase" in calls[0][0]
     assert "chapitres" in calls[1][0] and calls[1][1]["max_output_tokens"] == llm.CHAPTERS_MAX_TOKENS

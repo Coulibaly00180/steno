@@ -26,7 +26,7 @@ from .analysis_options import (
 from .config import INDEX_QUEUE_NAME, settings
 from .db import SessionLocal
 from .exports import write_exports
-from .llm import final_summary, summarize_chunk, summarize_group, translate_chunk
+from .llm import OUTLINE_MIN_RANGES, final_summary, summarize_chunk, summarize_group, translate_chunk
 from .models import (
     Chapter, JobDuration, ProcessingJob, Summary, SummaryTemplate, TranscriptSegment, Video, VideoClip, VideoEntityState,
     VideoIndex,
@@ -501,6 +501,7 @@ def compose_summary(
             word_budget=budget,
             instructions=custom_prompt,
             vocabulary=vocabulary,
+            outline=len(summaries) >= OUTLINE_MIN_RANGES,
         )
     else:
         # Nothing was said: asking the LLM would only invite invention.

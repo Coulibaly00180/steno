@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
 
 type Item = {
-  error?: string; covered?: number; topics?: number; missing?: string[]; words?: number; budget?: number; length_ratio?: number | null;
+  error?: string; covered?: number; topics?: number; missing?: string[]; unsaid?: string[]; words?: number; budget?: number; length_ratio?: number | null;
   chapters?: number; chapter_hits?: number | null; chapter_expected?: number | null; language?: string | null; language_ok?: boolean | null;
   transcription_seconds?: number | null; summary_seconds?: number;
 };
@@ -116,7 +116,7 @@ export default function QualityPanel() {
                 ? <tr key={key}><td>{key}</td><td colSpan={5} className="field-hint">{item.error}</td></tr>
                 : <tr key={key}>
                   <td>{key}</td>
-                  <td>{item.covered}/{item.topics}{!!item.missing?.length && <span className="field-hint"> · manque : {item.missing.join(", ")}</span>}</td>
+                  <td>{item.covered}/{item.topics}{!!item.missing?.length && <span className="field-hint"> · manque : {item.missing.join(", ")}</span>}{!!item.unsaid?.length && <span className="field-hint"> · jamais dit dans l&apos;enregistrement, non compté : {item.unsaid.join(", ")}</span>}</td>
                   <td>{item.words} / {item.budget} mots ({percent(item.length_ratio)})</td>
                   <td>{item.chapters}{item.chapter_expected ? ` · ${item.chapter_hits}/${item.chapter_expected} débuts attendus` : ""}</td>
                   <td>{item.language ?? "?"}{item.language_ok === false ? " ✕" : ""}</td>

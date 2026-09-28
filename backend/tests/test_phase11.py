@@ -360,6 +360,13 @@ def test_a_summary_is_scored_against_its_reference():
     assert (score["chapter_hits"], score["chapter_expected"], score["language_ok"]) == (1, 2, True)
 
 
+def test_only_the_subjects_said_in_the_recording_count():
+    summary = "Le budget est validé. Claire enverra le devis."
+    # The salon is in the official description, never in the recording: it is not held against the summary.
+    score = quality.score_item(summary, 600, [], REFERENCE, "fr", transcript="[00:00:00] Le budget et le devis de Claire.")
+    assert (score["covered"], score["topics"], score["coverage"], score["missing"], score["unsaid"]) == (2, 2, 1.0, [], ["salon"])
+
+
 def test_the_comparison_tells_what_got_worse():
     before = {"a": {"covered": 3, "topics": 3, "length_ratio": 0.9, "chapter_hits": 2, "chapter_expected": 2, "language_ok": True}}
     after = {"a": {"covered": 2, "topics": 3, "length_ratio": 1.8, "chapter_hits": 2, "chapter_expected": 2, "language_ok": False,
@@ -398,7 +405,9 @@ def test_a_run_replays_the_corpus_with_the_analysis_code(env, monkeypatch):
         results = json.loads(stored.results)
     assert stored.status == "COMPLETED" and stored.score == pytest.approx(66.7)
     item = results["clip-fr"]
+    # The salon is said (65 s): it counts, and the summary misses it.
     assert (item["covered"], item["missing"], item["chapter_hits"], item["transcription_seconds"]) == (2, ["salon"], 2, 4)
+    assert item["unsaid"] == []
     assert item["summary"] == "Le budget et le devis sont traités."
 
 
