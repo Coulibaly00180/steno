@@ -121,9 +121,21 @@ def fingerprint(db) -> tuple[str, str]:
     return hashlib.sha256(full.encode("utf-8")).hexdigest(), prompt_hash[:8]
 
 
-def score_item(summary: str, duration: float, chapters: list[tuple[float, str]], reference: dict, language: str | None) -> dict:
-    """Scores of one summary against its reference (the method of data/corpus/score.py)."""
+def score_item(summary: str, duration: float, chapters: list[tuple[float, str]], reference: dict, language: str | None,
+               transcript: str | None = None) -> dict:
+    """Scores of one summary against its reference (the method of data/corpus/score.py).
+
+    With the transcript, only the subjects actually said count: the references
+    come from the official descriptions, which say more than the recording
+    (clip-fr: 3 of its 4 subjects are never said, so its summary could not
+    score over 25 %). The others are listed as `unsaid`.
+    """
     topics = reference.get("topics", {})
+    unsaid: list[str] = []
+    if transcript is not None:
+        heard = transcript.lower()
+        unsaid = [name for name, pattern in topics.items() if not re.search(pattern, heard)]
+        topics = {name: pattern for name, pattern in topics.items() if name not in unsaid}
     lowered = summary.lower()
     missing = [name for name, pattern in topics.items() if not re.search(pattern, lowered)]
     words = len(re.findall(r"\w+", summary))
@@ -137,6 +149,7 @@ def score_item(summary: str, duration: float, chapters: list[tuple[float, str]],
         "topics": len(topics),
         "coverage": (len(topics) - len(missing)) / len(topics) if topics else None,
         "missing": missing,
+        "unsaid": unsaid,
         "words": words,
         "budget": budget,
         "length_ratio": round(words / budget, 3) if budget else None,
@@ -317,7 +330,9 @@ def run_quality(run_id: str) -> None:
                 vocabulary=[],
                 on_stage=check,
             )
-            results[key] = score_item(final, duration, chapters, references.get(key, {}), transcript.get("language")) | {
+            results[key] = score_item(
+                final, duration, chapters, references.get(key, {}), transcript.get("language"), transcript=text,
+            ) | {
                 "transcription_seconds": None if transcript.get("cached") else transcript.get("seconds"),
                 "summary_seconds": round(time.monotonic() - started),
                 "summary": final,

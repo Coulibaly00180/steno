@@ -19,6 +19,19 @@ _PLACEHOLDER = re.compile(r"\[[^\]\n]{1,40}\](?!\()")
 _HEADING = re.compile(r"^\s*#{1,6}\s+\S")
 # Below this budget, five mandatory sections overflowed it by ~50 %.
 SHORT_SUMMARY_WORDS = 300
+# Long content (docs/specs/qualite-resumes.md): a first section, one bullet per time range.
+# Measured on the corpus: 3 h 15 of talks, 7 and 9 of 17 expected subjects without it, 13 and 13
+# with it; a 1 h 50 course, 5/6 then 6/6. On a 1-hour podcast (5 ranges) it did worse (5 and 7 of
+# 11, against 8 and 8): hence only from OUTLINE_MIN_RANGES ranges on.
+OUTLINE_MIN_RANGES = 8
+OUTLINE_SECTION = (
+    "# Déroulé\n"
+    "Une puce par plage horaire du texte, dans l'ordre, sans en sauter aucune, de 25 mots au plus : "
+    "l'horodatage de son début, puis son sujet et les noms propres importants (personnes, lieux, produits, "
+    "organisations). Pas de paragraphe : le détail va dans les rubriques suivantes.\n\n"
+)
+# The outline makes the summary longer (2 411 words for a 1 500-word budget on the talks): room for it.
+OUTLINE_LENGTH_FACTOR = 1.7
 # Models sometimes wrap Markdown in a ```markdown fence despite being told not to.
 _FENCE_LINE = re.compile(r"^\s*```[\w-]*\s*$")
 
@@ -253,8 +266,10 @@ def summarize_chunk(
     """
     # Measured on an 11-minute product review: with 6 bullets per ~8-minute block
     # only 4 of 10 products survived; the final summary cannot recover them.
-    # ~45 tokens per French bullet with its timestamp: 320 cut the 8th bullet.
-    bullets, tokens = (12, 620) if detailed else (8, 420)
+    # ~45 tokens per French bullet with its timestamp: 320 cut the 8th bullet. 420 still cut 3 of
+    # the corpus's 35 blocks (their last bullet, so their last subject, was lost); 600 cut none.
+    # A cap, not a target: a short summary costs no more.
+    bullets, tokens = (12, 880) if detailed else (8, 600)
     summary, done_reason = chat_completion(
         f"Résume en {output_language} le passage de transcription entre les balises, en au plus {bullets} puces. "
         "Synthétise tout le passage, du début à la fin : chaque puce regroupe ce qui se dit sur plusieurs minutes ; "
@@ -339,8 +354,12 @@ def final_summary(
     word_budget: int = 250,
     instructions: str | None = None,
     vocabulary: list[str] | tuple[str, ...] = (),
+    outline: bool = False,
 ) -> str:
+    """`outline`: long content, a « Déroulé » section first (see OUTLINE_MIN_RANGES)."""
     template_text = _PLACEHOLDER.sub("", template_prompt).strip()
+    if outline:
+        template_text = OUTLINE_SECTION + template_text
     headings = template_headings(template_text)
     if headings:
         structure = (
@@ -381,7 +400,7 @@ def final_summary(
         # Repeated last: a French prompt otherwise pulls the answer back to French.
         f"Rappel : rédige tout le compte-rendu en {output_language}, en Markdown simple sans bloc de code, "
         "sans parler de « blocs », de « parties », de « passages » ni de « plages horaires ».",
-        max_output_tokens=final_output_tokens(word_budget),
+        max_output_tokens=final_output_tokens(int(word_budget * OUTLINE_LENGTH_FACTOR) if outline else word_budget),
     )
     content = strip_code_fence(content)
     if done_reason == "length":
