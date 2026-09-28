@@ -329,6 +329,8 @@ class LiveSegment(Base):
     start_seconds: Mapped[float] = mapped_column(Float)
     end_seconds: Mapped[float] = mapped_column(Float)
     text: Mapped[str] = mapped_column(Text)
+    # "you" or "others" in a two-sided recording (phase 4): the side the voice was on.
+    side: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
 
 class ActionItem(Base):

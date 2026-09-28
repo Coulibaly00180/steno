@@ -346,6 +346,50 @@ def test_the_live_service_follows_a_recording(client, env, tmp_path):
     assert service.sessions == {}
 
 
+def two_sided_webm(path: Path) -> Path:
+    """You (left, 300 Hz) for 4 s, then them (right, 500 Hz) for 4 s, coming back into your microphone at a fifth."""
+    # Commas escaped: inside a filter they would separate its options.
+    left = r"if(lt(t\,4)\,0.5*sin(2*PI*300*t)\,0.1*sin(2*PI*500*t))"
+    right = r"if(lt(t\,4)\,0\,0.5*sin(2*PI*500*t))"
+    subprocess.run(
+        ["ffmpeg", "-y", "-nostdin", "-f", "lavfi", "-i", f"aevalsrc={left}|{right}:d=8:s=48000",
+         "-c:a", "libopus", "-b:a", "64k", "-f", "webm", str(path)],
+        check=True, capture_output=True,
+    )
+    return path
+
+
+def test_each_live_line_goes_to_the_side_the_voice_was_on():
+    meter = live.SideMeter()
+    rate = live.RATE
+    t = np.arange(8 * rate) / rate
+    mine = np.where(t < 4, 0.5 * np.sin(2 * np.pi * 300 * t), 0.1 * np.sin(2 * np.pi * 500 * t))  # then their echo
+    theirs = np.where(t < 4, 0.0, 0.5 * np.sin(2 * np.pi * 500 * t))
+    stereo = (np.stack([mine, theirs], axis=1) * 32767).astype(np.int16)
+    for part in np.array_split(stereo, 7):  # decoded a little at a time, not on 30 ms boundaries
+        meter.add(part)
+    assert meter.sides_of([(0.2, 3.8, "Bonjour."), (4.2, 7.8, "Merci."), (20.0, 21.0, "Plus tard.")]) == ["you", "others", None]
+
+
+def test_a_two_sided_live_transcript_labels_its_lines(client, env, tmp_path):
+    data = two_sided_webm(tmp_path / "call.webm").read_bytes()
+    recording = start(client, live=True, sides=True)
+    model = FakeModel()
+    service = live.LiveService(model_factory=lambda: model)
+    for index, chunk in enumerate(chunks_of(data)):
+        client.put(f"/recordings/{recording['id']}/chunks/{index}", content=chunk)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and not service.tick():
+        time.sleep(0.2)
+    with env() as db:
+        lines = [(row.text, row.side) for row in db.query(LiveSegment).filter_by(recording_id=recording["id"])]
+    # 0-5 s: you for 4 s, them for 1 s. The transcription still heard the mix of both.
+    assert lines[0] == ("phrase 1.", "you")
+    assert abs(model.calls[0][0] - 8.0) < 0.3
+    client.delete(f"/recordings/{recording['id']}")
+    service.tick()
+
+
 def test_a_failing_live_transcript_leaves_the_recording_going(client, env, tmp_path):
     data = make_opus(tmp_path / "a.webm", seconds=6.0).read_bytes()
     recording = start(client, live=True)

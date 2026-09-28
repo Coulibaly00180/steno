@@ -1,4 +1,5 @@
 """Two sides of a recorded call (feuille de route n° 3, phase 4): echo, merge, labels, pipeline, recordings."""
+import subprocess
 import wave
 from pathlib import Path
 from types import SimpleNamespace
@@ -275,3 +276,69 @@ def test_a_two_sided_recording_becomes_a_two_sided_video(environment, tmp_path, 
     except Exception:
         pass  # the stub job is not a JobOut; the layout handed over is what counts
     assert queued["layout"] == "sides"
+
+
+# --- separate tracks at import (OBS, call recorders) ---------------------------------------------
+
+def obs_file(tmp_path: Path) -> Path:
+    """Three mono tracks, like OBS: the mix, your microphone (0.5-2 s), the desktop sound (3.5-5 s, with your echo-free mic)."""
+    mine, theirs = burst(6, (0.5, 2.0, 0.3)), burst(6, (3.5, 5.0, 0.5))
+    paths = [write_wav(tmp_path / f"t{i}.wav", track) for i, track in enumerate((mine + theirs, mine, theirs))]
+    target = tmp_path / "obs.mka"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", *[a for p in paths for a in ("-i", str(p))],
+                    "-map", "0:a", "-map", "1:a", "-map", "2:a", "-c:a", "pcm_s16le", str(target)], check=True)
+    return target
+
+
+def test_layouts_name_a_track_and_optionally_a_channel():
+    assert sides.parse_layout("sides") == ("0.L", "0.R")
+    assert sides.parse_layout("sides:1;2") == ("1", "2") and sides.parse_layout("sides:0.R;0.L") == ("0.R", "0.L")
+    assert sides.parse_layout("sides:1;1") is None and sides.parse_layout("sides:12;0") is None and sides.parse_layout(None) is None
+    assert sides.layout_for("0.L", "0.R") == "sides" and sides.layout_for("1", "2") == "sides:1;2"
+    with pytest.raises(ValueError):
+        sides.layout_for("1", "1")
+
+
+def test_the_tracks_must_exist_in_the_file(tmp_path, monkeypatch):
+    source = obs_file(tmp_path)
+    assert sides.is_two_sided(source, "sides:1;2")
+    assert not sides.is_two_sided(source, "sides:1;3")  # no fourth track
+    assert not sides.is_two_sided(source, "sides:1.L;2")  # a mono track has no left channel
+    assert not sides.is_two_sided(source, "sides")  # the first track is mono
+
+
+def test_separate_tracks_are_split_like_a_recording(tmp_path, monkeypatch):
+    monkeypatch.setattr(sides.settings, "data_dir", tmp_path)
+    with sides.prepared(obs_file(tmp_path), "sides:1;2") as prepared:
+        you, others = sides.frame_levels(prepared.you), sides.frame_levels(prepared.others)
+    second = lambda seconds: int(seconds / 0.03)  # noqa: E731
+    assert you[second(0.6):second(1.9)].min() > 0.02 and you[second(3.6):second(4.9)].max() == 0
+    assert others[second(3.6):second(4.9)].min() > 0.02 and others[second(0.6):second(1.9)].max() == 0
+
+
+def test_an_obs_file_is_transcribed_side_by_side(environment, tmp_path, monkeypatch):
+    video_id, job_id = add_video(environment, obs_file(tmp_path), layout="sides:1;2")
+    monkeypatch.setattr(worker, "get_whisper_model", lambda: HearsTones())
+    worker.run_pipeline(job_id)
+    with environment() as db:
+        video = db.get(Video, video_id)
+        assert [(s.side, s.text) for s in video.segments] == [
+            ("you", "Bonjour, je présente le budget."), ("others", "Merci pour ce point budget."),
+        ]
+
+
+def test_the_import_form_sets_the_tracks(client, upload_environment, monkeypatch):
+    from tests.test_upload import SuccessfulQueue
+
+    session, _ = upload_environment
+    monkeypatch.setattr(main, "Queue", SuccessfulQueue)
+    files = {"file": ("appel.mkv", b"media", "video/x-matroska")}
+    assert client.post("/videos", files=files, data={"sides": "1;1"}).status_code == 422
+    assert client.post("/videos", files=files, data={"sides": "piste 2"}).status_code == 422
+    layouts = []
+    for spec in ("1;2", "0.L;0.R", ""):
+        response = client.post("/videos", files=files, data={"sides": spec} if spec else {})
+        assert response.status_code == 200
+        with session() as db:
+            layouts.append(db.get(Video, response.json()["video_id"]).audio_layout)
+    assert layouts == ["sides:1;2", "sides", None]

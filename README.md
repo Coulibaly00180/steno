@@ -17,7 +17,7 @@ Il permet aussi de poser des questions sur une vidéo ou sur toute la bibliothè
 |---|---|
 | **Entrées** | Import de fichiers, de liens (fichier, flux RSS, plateformes vidéo via yt-dlp si l'option est activée), dossier surveillé `data/inbox`, enregistrement depuis le navigateur avec transcription en direct |
 | **Transcription** | faster-whisper, fenêtre par fenêtre (mémoire constante jusqu'à 6 h), vocabulaire et glossaire qui apprend des corrections, mots douteux signalés, filtre des boucles et des phrases inventées sur le silence |
-| **Qui parle** | Identification des intervenants avec **Nemotron 3 Diarization** (NVIDIA, sur le processeur), sherpa-onnx en repli. En mode « micro + onglet », **deux pistes** : « Vous » et « Participants » sans deviner, écho des haut-parleurs retiré |
+| **Qui parle** | Identification des intervenants avec **Nemotron 3 Diarization** (NVIDIA, sur le processeur), sherpa-onnx en repli. En mode « micro + onglet », ou avec des pistes séparées à l'import (OBS, enregistreur d'appels), **deux côtés** : « Vous » et « Participants » sans deviner, écho des haut-parleurs retiré, jusque dans la transcription en direct |
 | **Analyse** | Résumés par template, longueur réglable, **résumé vérifiable** (source de chaque ligne), chapitres, actions et décisions avec dates, personnes, organisations et lieux, séries de réunions (« depuis la dernière fois ») |
 | **Questions** | Chat sur une vidéo, questions sur toute la bibliothèque (recherche hybride mots + sens), conversations enregistrées |
 | **Sorties** | Sous-titres, comptes-rendus DOCX et PDF, note et archive Obsidian, brouillon d'e-mail, actions en CSV et `.ics`, extraits vidéo sous-titrés |

@@ -686,8 +686,9 @@ def diarize_video(video_id: str, *, on_progress=None, job_id: str | None = None)
         audio_path = settings.audio_dir / f"{video.id}.wav"
         video_path, num_speakers = Path(video.path), video.num_speakers
         two_sided = any(segment.side for segment in video.segments)
+        layout = video.audio_layout
     if two_sided:
-        return _diarize_sides(video_id, video_path, on_progress=on_progress, job_id=job_id)
+        return _diarize_sides(video_id, video_path, layout, on_progress=on_progress, job_id=job_id)
     if not audio_path.is_file():
         if not video_path.is_file():
             raise PipelineError(ERROR_SOURCE_NOT_FOUND)
@@ -710,12 +711,12 @@ def diarize_video(video_id: str, *, on_progress=None, job_id: str | None = None)
         return len(video.speakers)
 
 
-def _diarize_sides(video_id: str, video_path: Path, *, on_progress=None, job_id: str | None = None) -> int:
+def _diarize_sides(video_id: str, video_path: Path, layout: str | None, *, on_progress=None, job_id: str | None = None) -> int:
     """A two-sided recording (phase 4): the voices are told apart within each side, from its own track."""
     if not video_path.is_file():
         raise PipelineError(ERROR_SIDES_SOURCE_MISSING)
     turns = {}
-    with sides.prepared(video_path) as prepared:
+    with sides.prepared(video_path, layout or sides.LAYOUT) as prepared:
         for index, (side, path) in enumerate(((sides.YOU, prepared.you), (sides.OTHERS, prepared.others))):
             progress = sides.half_progress(on_progress, index, prepared.duration) if on_progress else None
             turns[side] = diarize(path, on_progress=progress)
@@ -1043,7 +1044,7 @@ def run_pipeline(job_id: str) -> None:
             set_job(job_id, stage="EXTRACTING_AUDIO", progress=7)
             _extract_audio(video_path, audio_path)
             # Your microphone and the other side on two tracks (phase 4): each side transcribed on its own.
-            two_sided = audio_layout == "sides" and sides.is_two_sided(video_path)
+            two_sided = sides.parse_layout(audio_layout) is not None and sides.is_two_sided(video_path, audio_layout)
 
             set_job(job_id, stage="TRANSCRIBING", progress=15)
             last_progress = 15
@@ -1083,7 +1084,7 @@ def run_pipeline(job_id: str) -> None:
                 try:
                     with watchdog:
                         if two_sided:
-                            sided, detected = sides.transcribe(model, video_path, **options)
+                            sided, detected = sides.transcribe(model, video_path, layout=audio_layout, **options)
                             rows = [row[:3] for row in sided]
                             side_of = [row[3] for row in sided]
                         else:

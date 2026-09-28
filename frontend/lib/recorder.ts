@@ -7,8 +7,11 @@ import { API, responseError } from "./api";
 export type RecordingSource = "mic" | "tab" | "both";
 
 // `inputs`: the captured tracks; they end when the shared tab closes or the microphone is unplugged.
-// `sides`: the stream is stereo, microphone left and tab right.
-export type Capture = { stream: MediaStream; inputs: MediaStreamTrack[]; level: AnalyserNode; sides: boolean; stop: () => void };
+// `sides`: the stream is stereo, microphone left and tab right; `sideLevels` then measure each side.
+export type Capture = {
+  stream: MediaStream; inputs: MediaStreamTrack[]; level: AnalyserNode; sides: boolean;
+  sideLevels: { you: AnalyserNode; others: AnalyserNode } | null; stop: () => void;
+};
 
 // Opus in WebM (Chrome, Edge) or Ogg (Firefox), AAC in MP4 (Safari): all accepted by the API.
 const MIME_TYPES = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/mp4"];
@@ -77,12 +80,19 @@ export async function openCapture(source: RecordingSource): Promise<Capture> {
     node.connect(level);
     return node;
   };
+  let sideLevels: Capture["sideLevels"] = null;
   if (sides && tab && mic) {
     destination.channelCount = 2;
     const merger = context.createChannelMerger(2);
-    mono(mic).connect(merger, 0, 0);
-    mono(tab).connect(merger, 0, 1);
+    const you = mono(mic), others = mono(tab);
+    you.connect(merger, 0, 0);
+    others.connect(merger, 0, 1);
     merger.connect(destination);
+    // One meter per side: a tab shared without its sound shows at once, before the meeting starts.
+    sideLevels = { you: context.createAnalyser(), others: context.createAnalyser() };
+    sideLevels.you.fftSize = sideLevels.others.fftSize = 1024;
+    you.connect(sideLevels.you);
+    others.connect(sideLevels.others);
   } else {
     for (const input of inputs) mono(input).connect(destination);
   }
@@ -91,6 +101,7 @@ export async function openCapture(source: RecordingSource): Promise<Capture> {
     inputs: inputs.flatMap(input => input.getAudioTracks()),
     level,
     sides,
+    sideLevels,
     stop: () => {
       inputs.forEach(stream => stream.getTracks().forEach(track => track.stop()));
       // Called when stopping, then again when leaving the page.
