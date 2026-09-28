@@ -43,7 +43,7 @@ from .analysis_options import (
     split_stored_terms,
     whisper_terms,
 )
-from . import ai_models, app_settings, auth, backups, entities, ollama_catalog, portable, quality, url_import, watch_folder
+from . import ai_models, app_settings, auth, backups, entities, ollama_catalog, portable, quality, sides, url_import, watch_folder
 from .config import QUEUE_NAME, settings
 from .learning import corrections_between, record_corrections, replacement_pair
 from .learning import dismiss as dismiss_suggestion
@@ -587,6 +587,8 @@ class ImportSettings:
     num_speakers: int | None
     source_policy: str = "keep"
     tags: list[str] = field(default_factory=list)
+    # Your voice and the others' on separate tracks or channels (feuille de route n° 3, phase 4; app.sides).
+    audio_layout: str | None = None
 
 
 def media_suffix(filename: str) -> str:
@@ -609,6 +611,7 @@ def import_settings(
     num_speakers: int | None,
     source_policy: str | None = None,
     tag: str | None = None,
+    sides_spec: str | None = None,
 ) -> ImportSettings:
     """Check the options; raises HTTPException with the message shown to the user."""
     normalized_target_language = (target_language or "").strip() or None
@@ -675,7 +678,19 @@ def import_settings(
         num_speakers=num_speakers if diarize else None,
         source_policy=normalized_policy,
         tags=tags,
+        audio_layout=_audio_layout(sides_spec),
     )
+
+
+def _audio_layout(sides_spec: str | None) -> str | None:
+    """« yours;theirs » from the import form (tracks from 0, optionally .L or .R) as a layout of app.sides."""
+    spec = (sides_spec or "").strip()
+    if not spec:
+        return None
+    try:
+        return sides.layout_for(*spec.split(";"))
+    except (TypeError, ValueError):
+        raise HTTPException(422, "Pistes invalides : choisissez deux pistes ou deux canaux différents pour vous et pour les autres")
 
 
 def create_import(destination: Path, original_filename: str, options: ImportSettings, video_id: str,
@@ -694,7 +709,7 @@ def create_import(destination: Path, original_filename: str, options: ImportSett
         raise HTTPException(400, f"Durée maximale: {settings.max_video_hours:g} heures")
     return queue_import(
         video_id, options, filename=destination.name, original_filename=original_filename, path=str(destination),
-        duration_seconds=duration, size_bytes=destination.stat().st_size, audio_layout=audio_layout,
+        duration_seconds=duration, size_bytes=destination.stat().st_size, audio_layout=audio_layout or options.audio_layout,
     )
 
 
@@ -778,6 +793,7 @@ async def upload_video(
     diarize: bool = Form(False),
     num_speakers: int | None = Form(None),
     source_policy: str | None = Form(None),
+    sides: str | None = Form(None),
 ):
     video_id = str(uuid.uuid4())
     original_filename = file.filename or "video.bin"
@@ -797,6 +813,7 @@ async def upload_video(
         diarize=diarize,
         num_speakers=num_speakers,
         source_policy=source_policy,
+        sides_spec=sides,
     )
 
     destination = settings.uploads_dir / f"{video_id}{suffix}"
@@ -2356,7 +2373,7 @@ async def finish_recording(recording_id: str, payload: ImportOptionsIn):
             raise HTTPException(409, "Cet enregistrement est déjà terminé")
         if not recording.size_bytes:
             raise HTTPException(409, "L'enregistrement est vide")
-        source, title, sides = Path(recording.path), recording.title, recording.sides
+        source, title, two_sided = Path(recording.path), recording.title, recording.sides
     video_id = str(uuid.uuid4())
     suffix = ".m4a" if source.suffix == ".mp4" else ".ogg"
     destination = settings.uploads_dir / f"{video_id}{suffix}"
@@ -2368,7 +2385,7 @@ async def finish_recording(recording_id: str, payload: ImportOptionsIn):
         raise HTTPException(422, "L'enregistrement est illisible ; il est conservé, vous pouvez réessayer ou l'abandonner") from exc
     try:
         job = await run_in_threadpool(
-            create_import, destination, _filename_for(title, suffix), options, video_id, "sides" if sides else None,
+            create_import, destination, _filename_for(title, suffix), options, video_id, sides.LAYOUT if two_sided else None,
         )
     except BaseException:
         destination.unlink(missing_ok=True)
@@ -2411,7 +2428,7 @@ async def live_transcript(recording_id: str):
                 state = {"status": recording.status, "live": recording.live, "error": recording.live_error} if recording else None
             for row in rows:
                 last_id = row.id
-                yield _sse("segment", {"start": row.start_seconds, "end": row.end_seconds, "text": row.text})
+                yield _sse("segment", {"start": row.start_seconds, "end": row.end_seconds, "text": row.text, "side": row.side})
             if state is None or state["status"] != "RECORDING":
                 yield _sse("end", state or {"status": "CANCELLED"})
                 return

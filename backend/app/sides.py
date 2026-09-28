@@ -69,22 +69,77 @@ class Prepared:
     duration: float  # seconds of the recording
 
 
-def is_two_sided(path: Path) -> bool:
-    """A stereo file: the left channel is the microphone, the right one the other side."""
+# Where each side is, in `videos.audio_layout`: "sides" (a browser recording: the
+# microphone on the left channel of the first audio track, the other side on the
+# right), or "sides:<yours>;<theirs>" for an imported file, each a track (0-based)
+# and optionally one of its channels: "sides:1;2" (OBS: your microphone on
+# track 2, the desktop sound on track 3), "sides:0.R;0.L".
+LAYOUT = "sides"
+DEFAULT_SPECS = ("0.L", "0.R")
+_SPEC = re.compile(r"^(\d)(?:\.([LR]))?$")
+
+
+def parse_layout(layout: str | None) -> tuple[str, str] | None:
+    """(your side, their side) of a two-sided layout, or None."""
+    if layout == LAYOUT:
+        return DEFAULT_SPECS
+    if not layout or not layout.startswith(LAYOUT + ":"):
+        return None
+    parts = layout[len(LAYOUT) + 1:].split(";")
+    if len(parts) != 2 or parts[0] == parts[1] or not all(_SPEC.match(part) for part in parts):
+        return None
+    return parts[0], parts[1]
+
+
+def layout_for(yours: str, theirs: str) -> str:
+    """The layout of two specs chosen at import; ValueError when they are not valid."""
+    layout = f"{LAYOUT}:{yours};{theirs}"
+    specs = parse_layout(layout)
+    if specs is None:
+        raise ValueError(layout)
+    return LAYOUT if specs == DEFAULT_SPECS else layout
+
+
+def _audio_channels(path: Path) -> list[int]:
+    """Channels of each audio track of the file."""
     result = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels", "-of", "csv=p=0", str(path)],
+        ["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=channels", "-of", "csv=p=0", str(path)],
         capture_output=True, text=True, timeout=settings.ffprobe_timeout_seconds,
     )
-    try:
-        return int(result.stdout.strip().split(",")[0]) >= 2
-    except ValueError:
+    channels = []
+    for line in result.stdout.split():
+        try:
+            channels.append(int(line.strip().strip(",")))
+        except ValueError:
+            continue
+    return channels
+
+
+def is_two_sided(path: Path, layout: str | None = LAYOUT) -> bool:
+    """The file holds both sides where the layout says: the tracks exist, a channel's track is stereo."""
+    specs = parse_layout(layout)
+    if specs is None:
         return False
+    channels = _audio_channels(path)
+    for spec in specs:
+        track, channel = _SPEC.match(spec).groups()
+        if int(track) >= len(channels) or (channel and channels[int(track)] < 2):
+            return False
+    return True
 
 
-def split_channels(source: Path, left: Path, right: Path) -> None:
+def _filter(spec: str, label: str) -> str:
+    track, channel = _SPEC.match(spec).groups()
+    fold = {"L": "pan=mono|c0=c0", "R": "pan=mono|c0=c1", None: "aformat=channel_layouts=mono"}[channel]
+    return f"[0:a:{track}]{fold}[{label}]"
+
+
+def split_channels(source: Path, left: Path, right: Path, layout: str | None = LAYOUT) -> None:
+    """Your side into `left`, theirs into `right`, as 16 kHz mono WAVs."""
+    yours, theirs = parse_layout(layout) or DEFAULT_SPECS
     subprocess.run(
         ["ffmpeg", "-y", "-nostdin", "-loglevel", "error", "-i", str(source), "-vn",
-         "-filter_complex", "[0:a:0]channelsplit=channel_layout=stereo[l][r]",
+         "-filter_complex", f"{_filter(yours, 'l')};{_filter(theirs, 'r')}",
          "-map", "[l]", "-ar", str(RATE), "-c:a", "pcm_s16le", str(left),
          "-map", "[r]", "-ar", str(RATE), "-c:a", "pcm_s16le", str(right)],
         check=True, capture_output=True, timeout=settings.ffmpeg_timeout_seconds,
@@ -181,12 +236,12 @@ def keep_only(source: Path, target: Path, kept: list[tuple[int, int]]) -> None:
 
 
 @contextlib.contextmanager
-def prepared(source: Path) -> Generator[Prepared, None, None]:
+def prepared(source: Path, layout: str | None = LAYOUT) -> Generator[Prepared, None, None]:
     """Both sides as 16 kHz mono WAVs (your side cleaned of echo), in a folder removed afterwards."""
     settings.audio_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=settings.audio_dir, prefix=".sides-") as folder:
         mic, others, you = Path(folder) / "mic.wav", Path(folder) / "others.wav", Path(folder) / "you.wav"
-        split_channels(source, mic, others)
+        split_channels(source, mic, others, layout)
         mic_levels, other_levels = frame_levels(mic), frame_levels(others)
         mine = own_voice(mic_levels, other_levels)
         keep_only(mic, you, regions(mine))
@@ -203,7 +258,8 @@ def half_progress(on_progress: Callable[[float], None], index: int, duration: fl
 
 
 def transcribe(model, source: Path, *, language: str | None, on_progress: Callable[[float], None] | None = None,
-               doubts: list | None = None, **options) -> tuple[list[tuple[float, float, str, str]], str | None]:
+               doubts: list | None = None, layout: str | None = LAYOUT,
+               **options) -> tuple[list[tuple[float, float, str, str]], str | None]:
     """Each side through Whisper on its own, then merged: (start, end, text, side) rows and the language.
 
     The side with the most speech goes first: with no language given, the one
@@ -211,7 +267,7 @@ def transcribe(model, source: Path, *, language: str | None, on_progress: Callab
     two passes each taking half of it. `doubts`, when given, receives one list
     per row, as with `transcribe_windows`.
     """
-    with prepared(source) as sides:
+    with prepared(source, layout) as sides:
         duration = sides.duration
         passes = sorted([(YOU, sides.you, sides.you_seconds), (OTHERS, sides.others, sides.others_seconds)],
                         key=lambda item: -item[2])

@@ -71,6 +71,21 @@ Ce n'est pas un meilleur score sur ce banc.
 
 Les règles d'écho reprennent celles d'omarchy-meeting-recorder (MIT), à une différence près : le calcul du gain du micro.
 
+## Suite livrée le 2026-09-28
+
+Origine : axes d'amélioration du 2026-09-27, point 3 (« prolonger les deux pistes »). Migration : `0016_live_sides`.
+
+- **Un indicateur de niveau par côté** sur la page Enregistrer : « Vous (micro) » et « Participants (onglet) ». Si un côté reste muet après 20 s, un message le signale (« Partager l'audio » non coché, micro coupé). `recorder.ts` (`sideLevels`), `record/page.tsx`.
+- **Transcription en direct à deux côtés.**
+  - L'aperçu écoute toujours le mélange des deux pistes : même coût, même comportement qu'avant.
+  - Le service `live` mesure le niveau de chaque côté toutes les 30 ms, et chaque ligne est attribuée au côté où était la voix, avec la règle d'écho de l'analyse complète (`SideMeter` dans `live.py`, colonne `live_segments.side`). L'aperçu affiche « Vous : » et « Participants : ».
+  - Mesure avec le petit modèle de l'aperçu, l'audio étant envoyé par morceaux de 4 s : `appel` et `appel-haut-parleurs`, 27 lignes chacun, **98,8 %** des mots du bon côté, 0 ligne d'écho, 0 ligne sans côté.
+- **Pistes séparées à l'import.**
+  - Option du formulaire d'import : « Ma voix et celle des autres sont sur des pistes séparées », avec la piste (et au besoin le canal) de chaque côté. C'est le cas d'OBS (une piste par source) ou d'un enregistreur d'appels (micro à gauche, appel à droite).
+  - Le champ `sides` de `POST /videos` vaut `"1;2"`, `"0.L;0.R"`… (pistes comptées à partir de 0). `videos.audio_layout` vaut alors `sides:<vous>;<autres>`, décodé par `sides.parse_layout`.
+  - Un fichier où la piste choisie n'existe pas est analysé comme d'habitude.
+  - Vérifié de bout en bout : un fichier `.mkv` à trois pistes (mélange, micro, son de l'appel), importé avec « piste 2 / piste 3 ».
+
 ## Limites
 
 - Le son d'un onglet ne se partage que dans **Chrome et Edge**. Celui d'une application de bureau (Teams, Zoom) ne se partage qu'avec **l'écran entier et le son du système**, sous Windows. La page Enregistrer l'explique.

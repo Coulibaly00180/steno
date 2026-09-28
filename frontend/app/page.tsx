@@ -73,6 +73,13 @@ function UploadBar({ upload }: { upload: UploadState }) {
   </div>;
 }
 
+// Tracks from 0 for the API ("1" is the second track), 1-based in the labels; a stereo track can be split in two.
+const TRACK_OPTIONS = [0, 1, 2, 3, 4, 5].flatMap(track => [
+  { value: `${track}`, label: `Piste ${track + 1}` },
+  { value: `${track}.L`, label: `Piste ${track + 1}, canal gauche` },
+  { value: `${track}.R`, label: `Piste ${track + 1}, canal droit` },
+]);
+
 export default function Home() {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -88,6 +95,10 @@ export default function Home() {
   const [useGlossary, setUseGlossary] = useState(true);
   const [diarize, setDiarize] = useState(false);
   const [numSpeakers, setNumSpeakers] = useState("");
+  // Your voice and the others' on separate tracks or channels (OBS, a recorder): phase 4 of roadmap n° 3.
+  const [separateSides, setSeparateSides] = useState(false);
+  const [yourTrack, setYourTrack] = useState("0.L");
+  const [theirTrack, setTheirTrack] = useState("0.R");
   const [sourcePolicy, setSourcePolicy] = useState<SourcePolicy>("keep");
   // n°12: import from a link instead of a file.
   const [mode, setMode] = useState<"file" | "link">("file");
@@ -181,6 +192,7 @@ export default function Home() {
     form.append("use_global_glossary", useGlossary && glossaryCount !== 0 ? "true" : "false");
     if (diarize) { form.append("diarize", "true"); if (numSpeakers) form.append("num_speakers", numSpeakers); }
     if (sourcePolicy !== "keep") form.append("source_policy", sourcePolicy);
+    if (separateSides) form.append("sides", `${yourTrack};${theirTrack}`);
     const startedAt = performance.now();
     setUpload(item.key, { state: "uploading", loaded: 0, total: item.file.size, startedAt });
     const controller = new AbortController();
@@ -272,6 +284,14 @@ export default function Home() {
         </div>
         <div className="field"><span className="field-label" id="length-label">Longueur du résumé</span><div className="segmented" role="radiogroup" aria-labelledby="length-label">{summaryLengths.map(option => <button type="button" role="radio" aria-checked={summaryLength === option.value} className={summaryLength === option.value ? "selected" : ""} title={option.hint} key={option.value} onClick={() => setSummaryLength(option.value)}>{option.label}</button>)}</div><span className="field-hint">{single && fileDuration !== null ? `~${wordBudget(fileDuration, summaryLength)} mots pour cette vidéo` : files.length > 1 ? "Longueur adaptée à la durée de chaque fichier." : summaryLengths.find(option => option.value === summaryLength)?.hint}</span></div>
         <div className="field speakers-option"><label className="checkbox"><input type="checkbox" checked={diarize} onChange={event => setDiarize(event.target.checked)} /><span>Identifier les intervenants <span className="muted">(réunion, interview : qui parle, et quand)</span></span></label>{diarize && <label className="speaker-count">Nombre d&apos;intervenants <input type="number" min={1} max={20} value={numSpeakers} onChange={event => setNumSpeakers(event.target.value)} placeholder="auto" /><span className="field-hint">Facultatif, mais plus fiable s&apos;il est connu.</span></label>}</div>
+        <div className="field speakers-option"><label className="checkbox"><input type="checkbox" checked={separateSides} onChange={event => setSeparateSides(event.target.checked)} /><span>Ma voix et celle des autres sont sur des pistes séparées <span className="muted">(OBS, enregistreur d&apos;appels : « Vous » et « Participants » sans deviner, écho retiré)</span></span></label>
+          {separateSides && <div className="track-choice">
+            <label>Votre micro <select value={yourTrack} onChange={event => setYourTrack(event.target.value)}>{TRACK_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            <label>Les autres <select value={theirTrack} onChange={event => setTheirTrack(event.target.value)}>{TRACK_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            {yourTrack === theirTrack && <span className="field-hint warning-text">Choisissez deux pistes ou deux canaux différents.</span>}
+            <span className="field-hint">Pistes numérotées dans l&apos;ordre du fichier : dans OBS, la piste 1 est souvent le mélange, puis une piste par source (micro, son du bureau). Si la piste choisie n&apos;existe pas dans le fichier, il est analysé comme d&apos;habitude.</span>
+          </div>}
+        </div>
         <details className="advanced" open={advancedOpen} onToggle={event => setAdvancedOpen(event.currentTarget.open)}>
           <summary>Options avancées</summary>
           <div className="form-grid">

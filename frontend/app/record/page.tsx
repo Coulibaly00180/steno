@@ -10,7 +10,8 @@ import { useSystemStatus } from "../../lib/status";
 
 type Recording = { id: string; title: string; status: string; live: boolean; sides?: boolean; size_bytes: number; live_error: string | null; created_at: string; updated_at: string };
 type Template = { id: string; name: string; is_default: boolean };
-type LiveLine = { start: number; end: number; text: string };
+type LiveLine = { start: number; end: number; text: string; side?: "you" | "others" | null };
+const SIDE_LABELS = { you: "Vous", others: "Participants" } as const;
 type Phase = "idle" | "starting" | "recording" | "paused" | "finishing";
 
 const sources: { value: RecordingSource; label: string; hint: string }[] = [
@@ -18,6 +19,10 @@ const sources: { value: RecordingSource; label: string; hint: string }[] = [
   { value: "tab", label: "Son d'un onglet ou d'une fenêtre", hint: "Une visioconférence ouverte dans le navigateur : choisissez son onglet et cochez « Partager l'audio »." },
   { value: "both", label: "Les deux", hint: "Une visioconférence : vous (micro) et vos interlocuteurs (onglet), gardés sur deux pistes. La transcription sait qui parle de quel côté, et l'écho de vos haut-parleurs est retiré. Le son d'un onglet se partage dans Chrome et Edge ; pour une application de bureau (Teams, Zoom), partagez l'écran entier avec le son du système (Windows)." },
 ];
+
+// A side never louder than this after SILENT_SIDE_SECONDS is reported as not captured.
+const SILENT_SIDE_SECONDS = 20;
+const HEARD_LEVEL = 0.03;
 
 function defaultTitle() {
   return `Enregistrement du ${new Date().toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }).replace(" ", " à ")}`;
@@ -43,6 +48,9 @@ export default function RecordPage() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [elapsed, setElapsed] = useState(0);
   const [level, setLevel] = useState(0);
+  const [sideLevels, setSideLevels] = useState<{ you: number; others: number } | null>(null);
+  // Loudest level heard on each side so far: a side still silent after a while is probably not captured.
+  const heardRef = useRef({ you: 0, others: 0 });
   const [, setUploadTick] = useState(0);
   const [lines, setLines] = useState<LiveLine[]>([]);
   const [liveNote, setLiveNote] = useState("");
@@ -83,7 +91,15 @@ export default function RecordPage() {
     const tick = () => {
       const clock = clockRef.current;
       setElapsed(clock.before + (performance.now() - clock.startedAt) / 1000);
-      if (captureRef.current) setLevel(readLevel(captureRef.current.level, buffer));
+      const capture = captureRef.current;
+      if (capture) {
+        setLevel(readLevel(capture.level, buffer));
+        if (capture.sideLevels) {
+          const you = readLevel(capture.sideLevels.you, buffer), others = readLevel(capture.sideLevels.others, buffer);
+          heardRef.current = { you: Math.max(heardRef.current.you, you), others: Math.max(heardRef.current.others, others) };
+          setSideLevels({ you, others });
+        }
+      }
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
@@ -122,6 +138,7 @@ export default function RecordPage() {
       recorder.start(CHUNK_MS);
       captureRef.current = capture; recorderRef.current = recorder; uploaderRef.current = uploader; recordingRef.current = recording;
       clockRef.current = { startedAt: performance.now(), before: 0 };
+      heardRef.current = { you: 0, others: 0 }; setSideLevels(null);
       setElapsed(0); setPhase("recording");
       if (live) followLive(recording.id);
     } catch (reason) {
@@ -216,14 +233,21 @@ export default function RecordPage() {
         <div className="recording-state"><span className={`rec-dot${phase === "recording" ? " on" : ""}`} /><strong className="mono recording-clock">{formatDuration(elapsed)}</strong><span className="muted">{phase === "paused" ? "En pause" : phase === "finishing" ? "Finalisation…" : "Enregistrement en cours"}</span></div>
         <div className="row"><button type="button" className="btn" onClick={togglePause} disabled={phase === "finishing"}><Icon name="pause" size={14} />{phase === "paused" ? "Reprendre" : "Pause"}</button><button type="button" className="btn primary" onClick={() => void stop()} disabled={phase === "finishing"}><Icon name="stop" size={14} />{phase === "finishing" ? "Envoi des dernières secondes…" : "Arrêter et analyser"}</button></div>
       </div>
-      <div className="level-meter" aria-hidden="true"><div style={{ width: `${Math.round(level * 100)}%` }} /></div>
+      {sideLevels ? <div className="side-meters">
+        {([["you", "Vous (micro)"], ["others", "Participants (onglet)"]] as const).map(([side, label]) => <div key={side} className="side-meter">
+          <span className="field-hint">{label}</span>
+          <div className="level-meter" aria-hidden="true"><div style={{ width: `${Math.round(sideLevels[side] * 100)}%` }} /></div>
+        </div>)}
+        {elapsed > SILENT_SIDE_SECONDS && heardRef.current.others < HEARD_LEVEL && <p className="field-hint warning-text">Aucun son de l&apos;onglet depuis le début : vérifiez que « Partager l&apos;audio » était coché, ou que la réunion a commencé.</p>}
+        {elapsed > SILENT_SIDE_SECONDS && heardRef.current.you < HEARD_LEVEL && <p className="field-hint warning-text">Aucun son du micro depuis le début : vérifiez qu&apos;il n&apos;est pas coupé.</p>}
+      </div> : <div className="level-meter" aria-hidden="true"><div style={{ width: `${Math.round(level * 100)}%` }} /></div>}
       <p className="field-hint">{recordingRef.current?.title} · {formatBytes(uploader?.sentBytes ?? 0)} envoyés{uploader?.pending ? ` · ${uploader.pending} morceau(x) en attente` : ""}</p>
       {uploader?.error && <div className="status-banner" role="status"><p>{uploader.error.message}</p></div>}
       {recordingRef.current?.live && <div className="live-transcript">
         <p className="field-label">Transcription en direct</p>
         {liveNote && <p className="field-hint">{liveNote}</p>}
         {!lines.length && !liveNote && <p className="muted">Les premières phrases apparaissent après quelques secondes de parole…</p>}
-        {lines.map((line, index) => <p key={`${line.start}-${index}`}><span className="mono">{formatDuration(line.start)}</span>{line.text}</p>)}
+        {lines.map((line, index) => <p key={`${line.start}-${index}`}><span className="mono">{formatDuration(line.start)}</span>{line.side && <strong className={`live-side side-${line.side}`}>{SIDE_LABELS[line.side]} : </strong>}{line.text}</p>)}
         <div ref={linesEnd} />
       </div>}
     </section>}

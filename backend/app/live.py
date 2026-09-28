@@ -12,6 +12,11 @@ segments delayed the preview by 25 s). The lines appear in `live_segments`.
 
 This transcript is a preview. Once the recording stops, the usual pipeline
 transcribes the whole file with the main model, then summarizes it.
+
+A two-sided recording (« micro + onglet », feuille de route n° 3, phase 4) is
+still transcribed as one mix here, at the same cost; the level of each side is
+measured every 30 ms, and each line goes to the side the voice was on, with the
+echo rule of the full analysis (`sides.own_voice`).
 """
 import gc
 import json
@@ -26,6 +31,7 @@ import numpy as np
 from redis import Redis
 from sqlalchemy import func, select
 
+from . import sides
 from .analysis_options import whisper_initial_prompt
 from .config import settings
 from .db import SessionLocal, engine
@@ -50,11 +56,12 @@ MODEL_IDLE_SECONDS = 120
 
 
 class LiveDecoder:
-    """One ffmpeg process turning a growing WebM/Ogg/MP4 stream into 16 kHz mono PCM."""
+    """One ffmpeg process turning a growing WebM/Ogg/MP4 stream into 16 kHz PCM (mono, or stereo for two sides)."""
 
-    def __init__(self):
+    def __init__(self, channels: int = 1):
+        self.frame_bytes = 2 * channels
         self.process = subprocess.Popen(
-            ["ffmpeg", "-loglevel", "error", "-nostdin", "-i", "pipe:0", "-vn", "-ac", "1", "-ar", str(RATE),
+            ["ffmpeg", "-loglevel", "error", "-nostdin", "-i", "pipe:0", "-vn", "-ac", str(channels), "-ar", str(RATE),
              "-f", "s16le", "pipe:1"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         )
@@ -77,9 +84,9 @@ class LiveDecoder:
             self.process.stdin.flush()
 
     def take(self) -> bytes:
-        """PCM decoded since the last call (whole 16-bit samples only)."""
+        """PCM decoded since the last call (whole samples of every channel only)."""
         with self._lock:
-            usable = len(self._pcm) - len(self._pcm) % 2
+            usable = len(self._pcm) - len(self._pcm) % self.frame_bytes
             data = bytes(self._pcm[:usable])
             del self._pcm[:usable]
         return data
@@ -205,12 +212,44 @@ def _sentences(words: list[tuple[float, float, str]]) -> list[tuple[float, float
     return [(line[0][0], line[-1][1], "".join(word[2] for word in line).strip()) for line in lines]
 
 
+class SideMeter:
+    """Levels of the two sides of a stereo recording, 30 ms at a time, from its start."""
+
+    def __init__(self):
+        self.mic: list[np.ndarray] = []
+        self.other: list[np.ndarray] = []
+        self._rest = np.zeros((0, 2), dtype=np.float32)
+
+    def add(self, stereo: np.ndarray) -> None:
+        samples = np.concatenate([self._rest, stereo.astype(np.float32) / 32768.0])
+        whole = len(samples) - len(samples) % sides.FRAME
+        frames = samples[:whole].reshape(-1, sides.FRAME, 2)
+        levels = np.sqrt(np.mean(frames ** 2, axis=1))
+        self.mic.append(levels[:, 0])
+        self.other.append(levels[:, 1])
+        self._rest = samples[whole:]
+
+    def sides_of(self, rows: list[tuple[float, float, str]]) -> list[str | None]:
+        """For each line, the side the voice was on: yours where your voice (echo aside) outweighs theirs."""
+        if not self.mic:
+            return [None] * len(rows)
+        mic, other = np.concatenate(self.mic), np.concatenate(self.other)
+        mine, theirs = sides.own_voice(mic, other), sides.active_frames(other)
+        result = []
+        for start, end, _ in rows:
+            a, b = int(start / (sides.FRAME / RATE)), max(int(end / (sides.FRAME / RATE)), int(start / (sides.FRAME / RATE)) + 1)
+            you, them = int(mine[a:b].sum()), int(theirs[a:b].sum())
+            result.append(None if not (you or them) else sides.YOU if you > them else sides.OTHERS)
+        return result
+
+
 class Session:
     def __init__(self, recording: Recording, committed: float, vocabulary_prompt: str | None):
         self.id = recording.id
         self.path = Path(recording.path)
         self.offset = 0
-        self.decoder = LiveDecoder()
+        self.meter = SideMeter() if recording.sides else None
+        self.decoder = LiveDecoder(channels=2 if self.meter else 1)
         self.transcriber = LiveTranscriber(committed=committed, language=recording.language, vocabulary_prompt=vocabulary_prompt)
 
     def pump(self) -> None:
@@ -223,7 +262,16 @@ class Session:
             return
         self.offset += len(data)
         self.decoder.feed(data)
-        self.transcriber.add(self.decoder.take())
+        pcm = self.decoder.take()
+        if self.meter and pcm:
+            # Both sides measured; the transcription hears their mix, as for any recording.
+            stereo = np.frombuffer(pcm, dtype=np.int16).reshape(-1, 2)
+            self.meter.add(stereo)
+            pcm = (stereo.astype(np.int32).sum(axis=1) // 2).astype(np.int16).tobytes()
+        self.transcriber.add(pcm)
+
+    def sides_of(self, rows: list[tuple[float, float, str]]) -> list[str | None]:
+        return self.meter.sides_of(rows) if self.meter else [None] * len(rows)
 
     def close(self) -> None:
         try:
@@ -275,7 +323,10 @@ class LiveService:
                 rows = session.transcriber.step(self.model)
                 if rows:
                     with SessionLocal() as db:
-                        db.add_all([LiveSegment(recording_id=recording.id, start_seconds=s, end_seconds=e, text=t) for s, e, t in rows])
+                        db.add_all([
+                            LiveSegment(recording_id=recording.id, start_seconds=s, end_seconds=e, text=t, side=side)
+                            for (s, e, t), side in zip(rows, session.sides_of(rows))
+                        ])
                         db.commit()
                     added += len(rows)
             except Exception as exc:
