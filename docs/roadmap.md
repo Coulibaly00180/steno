@@ -1,6 +1,6 @@
 # Feuilles de route de Sténo
 
-Les feuilles de route n° 1 et n° 2 n'avaient jamais été écrites dans le dépôt : elles vivaient dans les échanges, et seules les spécifications y renvoient. Ce fichier les regroupe et ouvre la n° 3.
+Les feuilles de route n° 1 et n° 2 n'avaient jamais été écrites dans le dépôt : elles vivaient dans les échanges, et seules les spécifications y renvoient. Ce fichier les regroupe et ouvre la n° 3. La n° 4 (2026-10-03) vient de l'étude de Recall.
 
 ## Historique
 
@@ -184,3 +184,201 @@ Phase 5 — Cartes AMD / Intel (Vulkan) : indépendante
 
 - Les chapitres écrits par un assistant en ligne : ils sortiraient la transcription de l'ordinateur.
 - L'application de bureau Linux : Sténo reste une application web multiplateforme dans Docker.
+
+## Feuille de route n° 4 — « Capturer, relier, retenir » (inspirée de Recall)
+
+### D'où elle vient
+
+Elle vient de l'étude de **Recall** (recall.it, anciennement getrecall.ai), décidée le 2026-10-03. Recall est une base de connaissances qui s'organise toute seule : on y sauvegarde des vidéos YouTube, des podcasts, des articles et des PDF ; il les résume, les relie et les fait réviser. Deux sources :
+- le site, la documentation, les tarifs, la feuille de route et les notes de version de Recall (liens en fin de section) ;
+- six captures d'écran de l'utilisateur, prises sur une vraie vidéo (« Séminaire Rentrée Triomphale, jour 3 », une vidéo YouTube de plus de 5 h), dans le dossier local `captures/`.
+
+**Ce que fait Recall**, d'après ses pages. Ce sont les chiffres et les affirmations de l'éditeur, non vérifiés ici.
+
+| Domaine | Fonctions |
+|---|---|
+| Contenus | YouTube (jusqu'à 10 h), podcasts, articles, PDF (300 pages), Google Docs, EPUB, réseaux sociaux (Instagram, TikTok, X, LinkedIn, Reddit, Facebook) avec lecture du texte des images, photos et captures d'écran, Apple News. Import en masse : 1 000 favoris ou liens CSV, 10 000 notes Markdown, Pocket. MP4 envoyés et transfert d'e-mails : seulement annoncés. |
+| Une carte par contenu | Onglets **Notebook** (résumé modifiable, éditeur par blocs), **Chat**, **Reader** (texte intégral horodaté), **Quiz**, **Connections**, **Graph** ; vue partagée (« Split ») ; tags automatiques |
+| Relier | Mots-clés et entités extraits et enrichis de chaque carte, comptés sur toute la base ; liens manuels `[[` ; fiches d'entités tirées de Wikipédia ; **graphe** (taille d'un nœud selon ses liens, couleur selon les tags, profondeur, filtres par période, source ou sujet) ; **navigation augmentée** : sur n'importe quelle page web, l'extension surligne les mots déjà présents dans la base |
+| Retenir | Quiz générés (QCM, vrai/faux, texte à trous, réponse courte, appariement, ordre, cartes) ; révision espacée en 5 étapes, d'un jour à trois mois ; défis partagés par lien, avec classement ; séries et rappels |
+| Demander | Chat sur une carte, une sélection (« @ Contexte »), toute la base, le web, ou les deux ; personas ; choix du modèle (GPT, Claude, Gemini, Grok, DeepSeek) en offre Max ; chaque affirmation sourcée et horodatée ; réponse enregistrable dans une carte |
+| Écouter | « Listen Mode » : tout contenu lu à voix haute, 30 langues, voix clonable |
+| Ailleurs | Extensions Chrome, Firefox, Safari, Edge ; applications iPhone et Android ; vue en tableau ; API et serveur MCP, tous deux en lecture seule |
+| Données | « Principalement sur l'appareil », sauvegardées sur Google Cloud en Belgique ; export ZIP Markdown ; pas d'entraînement sur les contenus des utilisateurs. Les résumés, le chat et les quiz passent par leurs serveurs et des modèles en ligne. |
+| Prix | Gratuit (10 résumés par mois) ; Plus à 10 $/mois ; Max à 38 $/mois (paiement annuel) |
+
+**Ce que montrent les captures** (vérifié à l'écran) :
+
+| Capture | Constat | Pour Sténo |
+|---|---|---|
+| Notebook | Résumé en rubriques, chaque puce horodatée ; les entités du texte (Jésus, Dieu, Jéhovah) sont des liens | Sténo a le résumé horodaté et vérifiable ; il n'a pas d'entités cliquables dans le texte |
+| Chat | Chaque affirmation porte un horodatage cliquable (▶ 5:03:20) et sa source ; temps de réflexion affiché ; boutons « Ajouter à la carte », pouces, « Sources » ; relance « Il manque le sel ? » bien traitée | Sténo source ses réponses ; il ne peut pas enregistrer une réponse dans une note |
+| Reader | Transcription horodatée phrase par phrase, entités en lien, temps de lecture (2 h 44) | Sténo a la transcription horodatée et la recherche ; il n'affiche pas d'entités en lien |
+| Connections | Entités par type, avec le nombre de cartes qui les citent ; bouton « Générer plus de connexions ». **Jésus-Christ, Yeshoua, David et YHWH y sont classés « Fictionalcharacter »** | Sténo a quatre types (personnes, organisations, lieux, dates) et des fiches. Un type de trop, et un mauvais classement devient blessant : sur un contenu religieux, « personnage de fiction » est une faute grave |
+| Graph | Étoile autour de la vidéo, réglage de profondeur | Sténo n'a pas de graphe |
+| Fiche « Jérusalem » | Article Wikipédia importé dans un Reader, avec des **restes de balisage** (« vignette\|upright=1.65 ») et des **chiffres manquants** (« une population de en décembre 2024 ») ; liens Wikipédia, X, Instagram | L'enrichissement par Wikipédia passe par Internet. En local : une copie hors ligne (Kiwix), à extraire proprement |
+
+**Déjà dans Sténo, vu dans les captures** :
+- le résumé modifiable ;
+- les horodatages cliquables dans les réponses du chat, l'export du chat, les pouces ;
+- le chat de bibliothèque restreint à une sélection de vidéos ;
+- les fiches de personnes, organisations et lieux, avec fusion.
+
+**Nouveau dans les captures, repris dans les phases ci-dessous** :
+- *Notebook* : des notes personnelles par blocs autour du résumé, et une étiquette posée sans action (« Religion »).
+- *Connexions et fiche « Jérusalem »* : une fiche d'entité est une page complète (Notebook, Chat, Quiz, Connexions), et un bouton « Générer plus de connexions ».
+- *Reader* : la transcription en paragraphes avec horodatages dans le texte, et un temps de lecture (2 h 44).
+- *Chat* : « Régénérer », la liste des sources sous la réponse, la portée choisie par « @ », la durée de réflexion affichée (« Thought for 2s »).
+- *Notebook* : un sommaire cliquable le long du résumé.
+- *Partout* : une liste de premiers pas (« Explore what's possible »), une recherche rapide (Ctrl+F) et un bouton « Écouter » sur le résumé.
+
+**Ce que Sténo fait que Recall ne fait pas** : tout en local ; enregistrement des réunions, deux pistes, intervenants ; fichiers locaux de 6 h ; actions et décisions, séries de réunions, comptes-rendus DOCX et PDF, extraits vidéo.
+
+**Ce que la feuille de route reprend** : les quatre points retenus le 2026-10-03, dans l'ordre du gain pour l'effort. On les construit à la manière de Sténo : local, mesuré, et chaque élément ramené à sa source dans l'enregistrement.
+
+### Statut
+
+| Phase | Statut |
+|---|---|
+| 1 — « Envoyer à Sténo » depuis le navigateur | à faire |
+| 2 — Relier les contenus (vidéos liées, connexions, graphe) | à faire |
+| 3 — Réviser (quiz et révision espacée) | à faire |
+| 4 — Articles et PDF | à faire, à confirmer après la phase 2 |
+| 5 — Lire et demander mieux | à faire |
+
+### Carte des dépendances
+
+```
+Phase 1 — Envoyer à Sténo ─────────────> (indépendante ; jetons d'accès utiles aux intégrations)
+
+Phase 2 — Relier ──┬──> Phase 3 — Réviser (questions reliées aux entités et aux passages)
+                   └──> Phase 4 — Articles et PDF (un article rejoint le même graphe)
+
+Phase 5 — Lire et demander mieux : indépendante, petits lots livrables un par un
+```
+
+### Phase 1 — « Envoyer à Sténo » depuis le navigateur (recommandée, gain rapide)
+
+- **Objectif** : envoyer à Sténo la vidéo ou le podcast ouvert dans le navigateur, en un clic, sans copier de lien.
+- **Pour l'utilisateur** : sur une page YouTube, un clic suffit. Choisir le template ou demander les intervenants prend un deuxième clic. Ensuite, une notification « Analyse terminée » mène au compte-rendu.
+- **Livrables** :
+  - une extension Chrome et Edge (Manifest V3), puis Firefox. Elle envoie l'adresse de l'onglet à l'import par lien (`url_import.py`, qui gère déjà les plateformes vidéo via yt-dlp quand l'option est activée) ;
+  - un favori « Envoyer à Sténo » (bookmarklet), pour qui ne veut pas d'extension ;
+  - depuis le téléphone, sur le réseau local : Sténo installable comme application web, avec la cible de partage d'Android (« Partager → Sténo ») ;
+  - des **jetons d'accès** créés et révoqués dans Paramètres › Accès. Ils permettent à l'extension et aux scripts de passer le mot de passe du réseau (`auth.py`). Ce sont les mêmes jetons que pour les futures intégrations.
+- **Dépendances** : aucune.
+- **Critère de sortie** :
+  - depuis une page YouTube, la tâche est en file en un clic (deux avec les options) ;
+  - l'extension refuse d'envoyer quoi que ce soit ailleurs qu'à l'adresse de Sténo configurée ;
+  - un jeton révoqué est refusé à la requête suivante.
+- **Risques** :
+  - la publication sur les magasins d'extensions, ou bien le chargement « non empaqueté » à expliquer ;
+  - l'adresse de Sténo : `127.0.0.1` sur le poste, adresse du réseau ailleurs, et le certificat local du proxy HTTPS à faire accepter par le navigateur.
+
+### Phase 2 — Relier les contenus (recommandée)
+
+- **Objectif** : qu'une vidéo ne soit plus une île. On voit d'un coup d'œil ce qu'elle partage avec le reste de la bibliothèque, et on navigue de l'une à l'autre.
+- **Pour l'utilisateur** :
+  - sur chaque vidéo, une section « Vidéos liées » qui dit pourquoi : mêmes personnes, même sujet, même série ;
+  - un onglet « Connexions » : les entités par type, avec le nombre de vidéos qui les citent, chacune cliquable ;
+  - les entités cliquables dans le résumé et la transcription ;
+  - une vue en graphe de la bibliothèque, avec profondeur et filtres (période, tag, série, type d'entité).
+- **Livrables** :
+  - un score de parenté entre deux vidéos : entités partagées pondérées par leur rareté, proximité des passages (embeddings `bge-m3` déjà calculés), même série. Calculé en tâche de fond après l'indexation ;
+  - routes `/videos/{id}/related` et `/library/graph` (nœuds et liens, limités et paginés pour tenir à grande échelle) ;
+  - la vue graphe dans le frontend, avec une bibliothèque de rendu WebGL ou canvas qui tienne des milliers de nœuds ;
+  - **Notes de la vidéo** : un bloc de notes personnelles à côté du résumé (Markdown, cases à cocher). « Ajouter à la note » y range une réponse du chat avec ses sources (vu dans les captures). Les notes partent dans l'export Obsidian ;
+  - **une fiche d'entité devient une page complète** : les vidéos et passages qui la citent, un chat limité à ces vidéos, puis ses questions de révision (phase 3). C'est la fiche « Jérusalem » de Recall, mais bâtie sur ce qui est dit dans la bibliothèque, pas sur Wikipédia ;
+  - **« Chercher plus de connexions »** : à la demande, une extraction plus poussée des entités d'une vidéo (blocs plus petits), pour qui veut plus que le passage automatique ;
+  - **des étiquettes suggérées** après l'analyse (« Religion », « Budget »). On les accepte d'un clic, aucune n'est posée sans accord. Ce sont les étiquettes existantes (n° 3), qui restent manuelles aujourd'hui ;
+  - En option, à mesurer : enrichir une fiche d'entité depuis une **copie de Wikipédia hors ligne** (Kiwix), téléchargée à la demande. Le texte doit être extrait sans restes de balisage, avec un repli sur un simple résumé, pour ne pas faire ce que montre la fiche « Jérusalem » de Recall.
+- **Dépendances** : aucune. Elle s'appuie sur les entités (n° 16), la recherche par le sens (n° 6) et les séries (n° 6 de la feuille de route n° 2).
+- **Critère de sortie** :
+  - « Vidéos liées » : au moins 4 des 5 premières jugées pertinentes, sur une bibliothèque de test d'au moins 30 vidéos (jugement à la main, consigné dans la spécification) ;
+  - le graphe de 1 000 vidéos s'affiche en moins de 2 s (mesuré avec `bench_library.py`) ;
+  - aucune entité classée dans un type absent des quatre types de Sténo.
+- **Risques** :
+  - la qualité des entités : Recall classe Jésus-Christ en « personnage de fiction ». Sténo garde ses quatre types, et une entité douteuse reste sans fiche plutôt que mal étiquetée ;
+  - les entités trop fréquentes (« Dieu », « France ») relient tout à tout. Il faut les pondérer par leur rareté et laisser l'utilisateur en masquer ;
+  - les performances de la vue graphe sur une grande bibliothèque.
+
+### Phase 3 — Réviser : quiz et révision espacée (optionnelle selon l'usage, utile pour les cours)
+
+- **Objectif** : retenir ce qu'on a regardé, surtout les cours et les formations.
+- **Pour l'utilisateur** :
+  - un onglet « Quiz » sur chaque vidéo ;
+  - une page « Réviser » qui propose chaque jour les questions dues ;
+  - chaque question renvoie au passage de la vidéo qui contient la réponse (▶ horodatage). Recall n'a pas ce lien direct au passage.
+- **Livrables** :
+  - questions générées par le modèle local à partir de la transcription et du résumé : QCM, vrai/faux, réponse courte, cartes. Chaque question porte sa source (horodatage, extrait) ;
+  - une vérification de chaque question, comme pour le résumé vérifiable (`verification.py`) : la réponse doit se trouver dans l'extrait cité, sinon la question est écartée ;
+  - la révision espacée : étapes et intervalles d'un jour à trois mois, comme Recall, ou l'algorithme SM-2, à trancher sur la simplicité ;
+  - l'export des questions vers Anki (fichier `.apkg` ou CSV), pour qui révise déjà avec Anki.
+- **Dépendances** : phase 2, pour les questions sur les entités et entre vidéos (facultatif pour un premier lot sur une seule vidéo).
+- **Critère de sortie** :
+  - sur un échantillon de 50 questions de `cours-fr` et `conference-en`, au moins 90 % ont une réponse juste et trouvable dans l'extrait cité (jugement à la main, consigné) ;
+  - aucune question sans source.
+- **Risques** :
+  - des questions inventées ou ambiguës : la vérification par extrait et un bouton « signaler » y répondent ;
+  - un usage incertain en dehors des cours. Le lot commence petit : quiz d'une vidéo, sans page de révision. La suite dépend de l'usage.
+
+### Phase 4 — Articles et PDF (à confirmer)
+
+- **Objectif** : résumer, relier et interroger aussi des textes (articles du web, PDF, puis EPUB), pas seulement de l'audio et de la vidéo.
+- **Pour l'utilisateur** : un article ou un PDF s'importe comme une vidéo. On retrouve le même résumé, le même chat, les mêmes entités, dans le même graphe.
+- **Livrables** :
+  - l'extraction locale du texte. Pour les articles, une bibliothèque d'extraction de lecture, comme trafilatura (licence à vérifier). Pour les PDF, pypdf ou pdfminer.six : pas PyMuPDF, sous licence AGPL. La lecture optique (Tesseract) est en option, pour les PDF scannés ;
+  - un type de contenu « document » dans le modèle de données : pas de lecteur, pas d'intervenants. Les horodatages deviennent des numéros de page ou de paragraphe, partout où l'interface en affiche ;
+  - les mêmes étapes que pour une vidéo après la transcription : résumé, entités, indexation.
+- **Dépendances** : phase 2 (un article rejoint le graphe).
+- **Critère de sortie** :
+  - sur un corpus d'au moins 10 articles et 5 PDF libres de droits, ajouté à `data/corpus`, couverture des sujets au moins égale à celle des vidéos du corpus ;
+  - aucun écran qui suppose un lecteur vidéo ne casse sur un document.
+- **Risques** :
+  - c'est le plus gros changement de périmètre : Sténo n'était fait que pour l'audio et la vidéo. Il est à confirmer après la phase 2, selon l'usage réel ;
+  - les pages web protégées ou chargées par JavaScript : on accepte un échec explicite plutôt qu'un texte vide ;
+  - les licences des bibliothèques d'extraction.
+
+### Phase 5 — Lire et demander mieux (recommandée, petits lots)
+
+- **Objectif** : rendre plus agréables la lecture d'une longue vidéo et les questions qu'on lui pose. Ce sont les détails vus dans les captures que Sténo n'a pas.
+- **Pour l'utilisateur et livrables**, chacun livrable seul :
+  - **vue « Lecture » de la transcription** : les lignes regroupées en paragraphes (par intervenant et par pause), avec les horodatages dans le texte et le temps de lecture. On bascule entre lignes et paragraphes. Sans re-rendre toute la transcription d'une vidéo de 6 h (règle d'`AGENTS.md`) ;
+  - **sommaire du résumé** : un plan cliquable des rubriques, utile depuis le « Déroulé » des contenus longs ;
+  - **chat** :
+    - « Régénérer » une réponse ;
+    - sous chaque réponse, la liste des passages cités, sans doublon ;
+    - dans le chat de bibliothèque, une portée choisie par « @ » : des vidéos, une étiquette, une série ou une personne (aujourd'hui, seulement une sélection de vidéos) ;
+  - **mode « réfléchir »** du chat : la réflexion de qwen3, aujourd'hui coupée (`think: False`), proposée en option, avec sa durée affichée. À mesurer avant de le livrer : justesse sur les questions du corpus, et délai ;
+  - **recherche rapide** (Ctrl+K) : vidéos, personnes et passages, depuis n'importe quelle page ;
+  - **premiers pas** : une courte liste à cocher (importer, demander, renommer un intervenant, réviser) qui remplace l'assistant affiché une seule fois (`/bienvenue`), et disparaît quand elle est faite.
+- **Dépendances** : aucune. La portée par personne et par série du chat profite de la phase 2.
+- **Critère de sortie** :
+  - vue Lecture d'une transcription de 6 h : premier affichage en moins de 1 s, défilement sans saccade (mesuré) ;
+  - mode « réfléchir » livré seulement s'il améliore la justesse sans doubler le délai.
+- **Risques** : la dispersion. Six petits lots, chacun avec son test, livrés un par un, pas un grand chantier d'interface.
+
+### Vu chez Recall, à discuter plus tard
+
+- **Écouter** un résumé ou une transcription (« Listen Mode », bouton « Listen » sur le résumé dans les captures) : faisable en local avec Piper, déjà utilisé par le banc « voix ». Les voix de Piper ont chacune leur licence.
+- **Partager** une vidéo (bouton « Share » des captures) : en lecture seule, et seulement sur le réseau local, derrière l'accès protégé existant. Jamais par un lien public.
+- **Navigation augmentée** : surligner, sur n'importe quelle page web, ce qui est déjà dans la bibliothèque. Ce serait le prolongement naturel de l'extension (phase 1) et du graphe (phase 2). Mais une extension qui lit toutes les pages visitées demande une prudence particulière : comparaison faite dans l'extension, rien envoyé à Sténo.
+- **Vue en tableau** de la bibliothèque, **import en masse** (favoris, CSV de liens), **défis partagés** (quiz par lien) : petits lots, selon l'usage.
+- **Intégrations** listées le 2026-09-28, à arbitrer :
+  - plusieurs dossiers surveillés avec leurs réglages (OBS, Zoom) ;
+  - synchronisation automatique d'un coffre Obsidian ;
+  - webhook « analyse terminée » ;
+  - agenda local ;
+  - serveur MCP. Recall en a un, en lecture seule. Dans Sténo, il ne resterait local qu'avec un assistant local.
+
+### Volontairement écarté
+
+- **Le chat par des modèles en ligne** (GPT, Claude, Gemini, comme Recall) et l'enrichissement par Internet : ils sortiraient les contenus de l'ordinateur.
+- **Les contenus des réseaux sociaux** : extraction fragile, contournement des conditions d'utilisation, peu utile au cas d'usage de Sténo.
+
+### Sources
+
+- [Recall, accueil](https://www.recall.it/) ; [tarifs](https://www.recall.it/pricing) ; [FAQ](https://www.recall.it/faq) ; [annonce de Recall 2.0](https://www.recall.it/post/recall-2-0-announcement)
+- [Documentation](https://docs.recall.it/) ; [graphe](https://docs.recall.it/deep-dives/graph/overview) ; [quiz et révision espacée](https://docs.recall.it/deep-dives/quiz-and-spaced-repetition) ; [chat](https://docs.recall.it/deep-dives/chat/overview) ; [navigation augmentée](https://docs.recall.it/deep-dives/recall-augmented-browsing) ; [API](https://docs.recall.it/developer/api) ; [MCP](https://docs.recall.it/developer/mcp) ; [feuille de route de Recall](https://docs.recall.it/recall-roadmap)
+- [Notes de version](https://feedback.recall.it/changelog)
+- Captures d'écran de l'utilisateur, 2026-10-03 (dossier local `captures/`, non versionné)

@@ -28,3 +28,4 @@ data/https/
 # Voices bench: Whisper, the Piper voices and the AMI meeting, downloaded once
 .bench-cache/
 backend/bench/.cache/
+captures/
