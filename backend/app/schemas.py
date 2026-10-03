@@ -509,6 +509,14 @@ class PasswordIn(BaseModel):
     require_local: bool | None = None
 
 
+class AccessTokenIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    name: str = Field(min_length=1, max_length=80)
+    # "import": what the browser extension needs; "full": the whole API (scripts). See app.auth.IMPORT_ROUTES.
+    scope: Literal["import", "full"] = "import"
+
+
 class OnboardingSettings(BaseModel):
     """First-launch assistant (n°19): shown until finished or skipped."""
 

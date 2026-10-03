@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Envoyer à Sténo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="popup">
+  <main>
+    <h1><img src="icons/icon-32.png" alt="" width="20" height="20"> Envoyer à Sténo</h1>
+    <p id="page" class="page-title"></p>
+    <form id="send">
+      <label for="template">Template</label>
+      <select id="template"><option value="">Template par défaut de Sténo</option></select>
+      <label class="check"><input id="diarize" type="checkbox"> Identifier les intervenants</label>
+      <label for="speakers">Nombre d'intervenants (facultatif)</label>
+      <input id="speakers" type="number" min="1" max="20" placeholder="auto">
+      <div class="row"><button id="submit" type="submit">Envoyer</button></div>
+      <p id="status" role="status"></p>
+    </form>
+  </main>
+  <script src="lib.js"></script>
+  <script src="send.js"></script>
+</body>
+</html>
