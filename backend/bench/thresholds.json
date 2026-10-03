@@ -1,5 +1,5 @@
 {
- "_comment": "Nemotron 3 Diarization (feuille de route n° 3, phase 3, 2026-09-26), Whisper small sur CPU, moins une marge : le banc bloque les reculs. « mots » varie de quelques points d'un lancement à l'autre (repli de Whisper sur un décodage par échantillonnage).",
+ "_comment": "Nemotron 3 Diarization (feuille de route n° 3, phase 3, 2026-09-26), Whisper small sur CPU, moins une marge : le banc bloque les reculs. « mots » dépendait du processeur (jeu d'instructions) : le service bench fixe AVX2 sans MKL, pour les mêmes chiffres partout (docs/specs/banc-voix.md, « Reproductible »).",
  "dialogue": {"max": {"speaker_error": 0.03}, "min": {"words_found": 0.95, "person": 0.97}, "all_voices": true},
  "bruit": {"max": {"speaker_error": 0.06}, "min": {"words_found": 0.9, "person": 0.95}, "all_voices": true},
  "reunion": {"max": {"speaker_error": 0.06}, "min": {"words_found": 0.85, "person": 0.95}, "all_voices": true},

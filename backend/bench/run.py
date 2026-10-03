@@ -288,6 +288,9 @@ def main(argv: list[str]) -> int:
     print(f"Whisper {name} sur {settings.whisper_device}, voix : {engine}", flush=True)
     # When Whisper doubts, it decodes again by sampling: without a seed, "mots" moved
     # by up to 15 points between two runs of the same code (musique: 85 %, then 71 %).
+    # The instruction set is pinned by the bench service (compose.test.yaml), for the
+    # same arithmetic on every CPU. A case run alone (--case) may differ from the whole
+    # bench, which is the reference (docs/specs/banc-voix.md, « Reproductible »).
     ctranslate2.set_random_seed(0)
     model = WhisperModel(name, device=settings.whisper_device, compute_type=settings.whisper_compute_type)
     jobs = []

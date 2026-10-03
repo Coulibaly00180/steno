@@ -9,12 +9,16 @@ permissions:
 
 # Same Docker test stack as on a developer machine (compose.test.yaml):
 # the CI cannot drift from what `docker compose -f compose.test.yaml` runs.
+#
+# Runners pinned to ubuntu-26.04 rather than ubuntu-latest: the image changes
+# when we decide (ubuntu-latest moves to 26.04 in November 2026). Actions on
+# their Node 24 majors (checkout v7, cache v6): the Node 20 ones are deprecated.
 jobs:
   backend:
     name: Backend tests (Docker, PostgreSQL + Redis)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Run backend tests
         run: docker compose -f compose.test.yaml run --rm backend-tests
       - name: Tear down
@@ -23,9 +27,9 @@ jobs:
 
   frontend:
     name: Frontend typecheck and build (Docker)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Typecheck and build
         run: docker compose -f compose.test.yaml run --rm frontend-tests
       - name: Tear down
@@ -34,9 +38,9 @@ jobs:
 
   compose:
     name: Compose validation
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Provide Compose environment file
         run: cp .env.example .env
       - name: Validate standard Compose file
@@ -53,13 +57,13 @@ jobs:
     # on generated French meetings and the first 5 minutes of a real AMI
     # meeting. Fails below backend/bench/thresholds.json.
     name: Voices bench (Docker, Whisper small on CPU)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Whisper small and the AMI meeting, downloaded once.
       - name: Restore the bench downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .bench-cache
           key: bench-small-ami-ES2004a

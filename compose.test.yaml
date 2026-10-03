@@ -60,6 +60,11 @@ services:
       DATA_DIR: /tmp/bench-data
       HF_HOME: /cache/huggingface
       BENCH_CACHE: /cache/bench
+      # The same arithmetic on every CPU (docs/specs/banc-voix.md, « Reproductible ») :
+      # the instruction set changed "musique" from 82 % to 87 % on the same code,
+      # and GitHub hands out AMD and Intel runners. Bench only: production keeps the fastest path.
+      CT2_FORCE_CPU_ISA: AVX2
+      CT2_USE_MKL: "0"
     volumes:
       - ./backend:/app
       - ./.bench-cache:/cache

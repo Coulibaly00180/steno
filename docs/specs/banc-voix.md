@@ -48,3 +48,29 @@ Moteur : sherpa-onnx (pyannote segmentation-3.0 + TitaNet), avec le regroupement
 ## Seuils
 
 `thresholds.json` reprenait ces valeurs avec une marge de quelques points : le banc bloque les reculs, pas l'état actuel. Ils ont été relevés avec la phase 3 (Nemotron, `docs/specs/nemotron.md`) : toutes les voix doivent maintenant être trouvées dans chaque cas, et l'erreur de personne reste sous 6 à 8 % sur les réunions générées et sous 14 % sur AMI 5 min.
+
+## Reproductible (2026-10-03)
+
+Origine : intégration continue fiable, avant le passage d'`ubuntu-latest` à Ubuntu 26.
+
+**Le problème.** Le cas `musique` échouait au hasard en intégration continue, sur le même code. Le relevé des six derniers lancements de la CI donne `words_found` à 85,4 %, 87,2 % et 71,3 % (seuil 78 %), avec des durées de 37 à 96 s : chaque lancement tombe sur un autre processeur. La graine aléatoire était déjà fixée (`ctranslate2.set_random_seed(0)`) : ce n'est pas le hasard du décodage.
+
+**Mesure** (`--case musique`, Ryzen 7 9800X3D, Whisper small sur CPU) :
+
+| Réglage | `words_found` |
+|---|---|
+| par défaut | 82,3 % |
+| `CT2_FORCE_CPU_ISA=AVX2` | 82,3 % |
+| `CT2_FORCE_CPU_ISA=AVX512` | 82,9 % |
+| `CT2_FORCE_CPU_ISA=AVX` | 87,2 % (valeur vue en CI) |
+| `CT2_FORCE_CPU_ISA=GENERIC` | 86,6 % |
+| `OMP_NUM_THREADS=4` (comme les serveurs GitHub) | 82,3 % |
+| `MKL_CBWR=COMPATIBLE` ou `CT2_USE_MKL=0`, pour chaque jeu d'instructions | inchangé |
+
+**La cause.** Le jeu d'instructions change les arrondis des calculs. Quand Whisper doute, il redécode autrement, et le texte retrouvé change de quelques mots : jusqu'à 15 points sur ce cas court, où la musique couvre la voix. Le nombre de threads n'y fait rien. Sur ce processeur AMD, MKL ne sert pas ; sur un serveur Intel, CTranslate2 l'utilise par défaut, ce qui ajoute une autre façon de calculer.
+
+**La correction.** Le service `bench` (`compose.test.yaml`) fixe `CT2_FORCE_CPU_ISA=AVX2` (présent sur tous les serveurs GitHub) et `CT2_USE_MKL=0` : le même chemin de calcul sur AMD comme sur Intel. Les seuils ne changent pas. La production n'est pas touchée : elle garde le chemin le plus rapide de chaque machine.
+
+**Vérifié** : avec ce réglage, trois lancements du banc complet sur le poste donnent exactement les mêmes chiffres (`musique` à 87,2 %, tous les cas au-dessus de leur seuil).
+
+**À savoir** : un cas lancé seul (`--case musique` : 82,3 %) ne donne pas forcément le chiffre du banc complet (87,2 %). CTranslate2 garde un état d'un cas à l'autre, et refixer la graine avant chaque cas n'y change rien (essayé). La référence est le banc complet, celui de la CI.
