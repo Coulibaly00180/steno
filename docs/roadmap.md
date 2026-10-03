@@ -240,7 +240,7 @@ Elle vient de l'étude de **Recall** (recall.it, anciennement getrecall.ai), dé
 
 | Phase | Statut |
 |---|---|
-| 1 — « Envoyer à Sténo » depuis le navigateur | à faire |
+| 1 — « Envoyer à Sténo » depuis le navigateur | livrée (2026-10-03, `docs/specs/envoyer-a-steno.md`) |
 | 2 — Relier les contenus (vidéos liées, connexions, graphe) | à faire |
 | 3 — Réviser (quiz et révision espacée) | à faire |
 | 4 — Articles et PDF | à faire, à confirmer après la phase 2 |

@@ -13,10 +13,12 @@ type Preview =
 const MAX_EPISODES_SHOWN = 30;
 
 /** n°12: a direct link to a file, or a podcast feed whose episodes are listed. */
-export default function LinkImport({ items, onItems, confirmed, onConfirmed, disabled }: {
+export default function LinkImport({ items, onItems, confirmed, onConfirmed, disabled, initialUrl, checkAtOnce = false }: {
   items: LinkItem[]; onItems: (items: LinkItem[]) => void; confirmed: boolean; onConfirmed: (value: boolean) => void; disabled: boolean;
+  /** A link received from the bookmarklet or the phone's share (feuille de route n° 4, phase 1), checked at once if `checkAtOnce`. */
+  initialUrl?: string; checkAtOnce?: boolean;
 }) {
-  const [url, setUrl] = useState("");
+  const [url, setUrl] = useState(initialUrl ?? "");
   const [feedTitle, setFeedTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -25,6 +27,11 @@ export default function LinkImport({ items, onItems, confirmed, onConfirmed, dis
   useEffect(() => {
     api<{ platforms: boolean }>("/settings/url-import").then(value => setPlatforms(value.platforms)).catch(() => setPlatforms(false));
   }, []);
+
+  useEffect(() => {
+    // Only the preview runs by itself: queueing the link still takes the user's click.
+    if (initialUrl && checkAtOnce) void inspect();
+  }, [initialUrl, checkAtOnce]);
 
   async function inspect() {
     if (!url.trim() || busy) return;

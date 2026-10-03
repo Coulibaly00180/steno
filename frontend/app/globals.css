@@ -198,3 +198,12 @@
 .catalog-variants{width:calc(100% - 24px);margin:0 12px 12px;border-collapse:collapse;font-size:12.5px}
 .catalog-variants td{padding:6px 6px;border-top:1px solid var(--border);vertical-align:middle}
 .catalog-variants .pill{margin-left:6px}
+/* Feuille de route n° 4, phase 1: access tokens, "Envoyer à Sténo" */
+.access-tokens{margin-top:18px;padding-top:14px;border-top:1px solid var(--border)}
+.token-form{gap:8px;margin:10px 0}.token-form input{flex:1;min-width:0;border:1px solid var(--border);border-radius:8px;background:var(--bg);padding:7px 9px;font-size:13px}
+.token-created{background:var(--success-subtle);border:1px solid var(--border);border-radius:9px;padding:10px 12px;font-size:13px;margin:10px 0}.token-created p{margin:0 0 8px}.token-created .row{gap:8px;align-items:center}
+.token-value{flex:1;min-width:0;overflow-wrap:anywhere;user-select:all;font-size:12px;background:var(--surface);padding:5px 8px;border-radius:6px}
+.token-list{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:8px}.token-list li{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;padding:8px 0;border-bottom:1px solid var(--border)}.token-list .field-hint{display:block;margin:2px 0 0}
+.bookmarklet{cursor:grab;margin:4px 0 8px}
+.send-form{display:grid;gap:14px}.send-options .row{gap:14px;align-items:center}
+.token-form select{border:1px solid var(--border);border-radius:8px;background:var(--bg);padding:7px 9px;font-size:13px}

@@ -4,13 +4,13 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from redis import Redis
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 
 from .. import app_settings, auth
 from ..config import settings
 from ..db import SessionLocal
-from ..models import Video
-from ..schemas import AccessSettings, LoginIn, OnboardingSettings, PasswordIn
+from ..models import AccessToken, Video
+from ..schemas import AccessSettings, AccessTokenIn, LoginIn, OnboardingSettings, PasswordIn
 
 router = APIRouter()
 
@@ -94,8 +94,10 @@ def set_password(payload: PasswordIn, request: Request, response: Response):
             raise HTTPException(403, auth.ERROR_NETWORK_DISABLED)
         if "new_password" in payload.model_fields_set:
             config.password_hash = auth.hash_password(payload.new_password) if payload.new_password else None
-            # Every session opened with the previous password closes.
+            # Every session opened with the previous password closes, and every access token is revoked:
+            # one created from a stolen session must not outlive the reset.
             config.version += 1
+            db.execute(delete(AccessToken))
             if not config.password_hash:
                 config.require_local = False
         if payload.require_local is not None:
@@ -133,6 +135,55 @@ def network_certificate():
     if not path.is_file():
         raise HTTPException(404, "Le proxy HTTPS n'a pas encore démarré")
     return FileResponse(path, media_type="application/x-x509-ca-cert", filename="steno-autorite-locale.crt")
+
+
+# --- Access tokens: extension and scripts (feuille de route n° 4, phase 1) ---------------------------
+
+
+def _no_token(request: Request) -> None:
+    """Tokens are managed from a session or this computer, never with a token: a stolen one cannot mint others."""
+    if auth.bearer_token(request.headers.get("authorization")) is not None:
+        raise HTTPException(403, "Un jeton d'accès ne peut pas gérer les jetons : ouvrez Paramètres › Accès et sécurité")
+
+
+def _token_out(row: AccessToken) -> dict:
+    return {"id": row.id, "name": row.name, "prefix": row.prefix, "scope": row.scope, "created_at": row.created_at,
+            "last_used_at": row.last_used_at}
+
+
+@router.get("/access/tokens")
+def list_tokens(request: Request):
+    _no_token(request)
+    with SessionLocal() as db:
+        return [_token_out(row) for row in db.scalars(select(AccessToken).order_by(AccessToken.created_at.desc(), AccessToken.id.desc()))]
+
+
+@router.post("/access/tokens", status_code=201)
+def create_token(payload: AccessTokenIn, request: Request):
+    """A new token, shown in full this once: only its SHA-256 is kept."""
+    _no_token(request)
+    token, digest, prefix = auth.new_access_token()
+    with SessionLocal() as db:
+        if (db.scalar(select(func.count()).select_from(AccessToken)) or 0) >= auth.MAX_TOKENS:
+            raise HTTPException(409, f"{auth.MAX_TOKENS} jetons au plus : révoquez ceux qui ne servent plus")
+        row = AccessToken(name=payload.name, token_hash=digest, prefix=prefix, scope=payload.scope)
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return _token_out(row) | {"token": token}
+
+
+@router.delete("/access/tokens/{token_id}", status_code=204)
+def revoke_token(token_id: int, request: Request):
+    """Revoked at once: the next request carrying it is refused (tokens are never cached)."""
+    _no_token(request)
+    with SessionLocal() as db:
+        row = db.get(AccessToken, token_id)
+        if row is None:
+            raise HTTPException(404, "Jeton introuvable")
+        db.delete(row)
+        db.commit()
+    return Response(status_code=204)
 
 
 # --- First launch (n°19) ---------------------------------------------------------------------------

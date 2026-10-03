@@ -228,10 +228,20 @@ class AccessGuard:
 
     async def __call__(self, scope, receive, send):
         path = scope.get("path", "")
-        if scope["type"] != "http" or path in auth.PUBLIC_PATHS or path.startswith("/auth/"):
+        if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        headers = {key.decode("latin-1").lower(): value.decode("latin-1") for key, value in scope.get("headers", [])}
+        # The first occurrence of a repeated header, as Starlette's Request reads it in the routes.
+        headers: dict[str, str] = {}
+        for key, value in scope.get("headers", []):
+            headers.setdefault(key.decode("latin-1").lower(), value.decode("latin-1"))
+        # Next's proxy passes the browser's Host as X-Forwarded-Host: both must be names of Sténo.
+        if not (auth.host_allowed(headers.get("host")) and auth.host_allowed(headers.get("x-forwarded-host"))):
+            await JSONResponse({"detail": auth.ERROR_HOST}, status_code=421)(scope, receive, send)
+            return
+        if path in auth.PUBLIC_PATHS or path.startswith("/auth/"):
+            await self.app(scope, receive, send)
+            return
         remote = headers.get(auth.REMOTE_HEADER) == "1"
         config = auth.cached()
         if config is None:
@@ -250,7 +260,17 @@ class AccessGuard:
         except CookieError:
             pass
         token = cookies[auth.COOKIE].value if auth.COOKIE in cookies else None
-        decision = auth.decide(path, remote=remote, token=token, config=config)
+        bearer = auth.bearer_token(headers.get("authorization"))
+        bearer_scope = None
+        if bearer is not None and not (remote and not config.password_hash):
+            try:
+                bearer_scope = await run_in_threadpool(auth.check_access_token, bearer)
+            except Exception:
+                logger.warning("Unable to check an access token", exc_info=True)
+                await JSONResponse({"detail": "Service indisponible"}, status_code=503)(scope, receive, send)
+                return
+        decision = auth.decide(path, remote=remote, token=token, config=config,
+                               bearer=bearer is not None, bearer_scope=bearer_scope, method=scope.get("method", "GET"))
         if decision.allowed:
             await self.app(scope, receive, send)
             return

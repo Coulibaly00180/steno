@@ -498,6 +498,27 @@ class AppSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class AccessToken(Base):
+    """Access token for the browser extension and scripts (feuille de route n° 4, phase 1).
+
+    Only the SHA-256 of the token is stored: the token itself is shown once, at
+    creation. Revoking deletes the row, so the next request carrying it is refused.
+    """
+
+    __tablename__ = "access_tokens"
+    __table_args__ = (Index("uq_access_tokens_token_hash", "token_hash", unique=True),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(80))
+    token_hash: Mapped[str] = mapped_column(String(64))
+    # The first characters, to tell the tokens apart in the list.
+    prefix: Mapped[str] = mapped_column(String(16))
+    # "import": only what the extension needs (auth.IMPORT_ROUTES); "full": the whole API, for scripts.
+    scope: Mapped[str] = mapped_column(String(16), default="import", server_default="import")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class Chapter(Base):
     """Thematic section of a video, produced with the block summaries."""
 

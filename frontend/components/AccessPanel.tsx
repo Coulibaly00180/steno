@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { API, api } from "../lib/api";
 import { accessStatus, type AccessStatus, type NetworkInfo } from "../lib/access";
+import AccessTokens from "./AccessTokens";
 import { Icon } from "./Icons";
 
 const json = (method: string, body: unknown): RequestInit => ({ method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -38,7 +39,7 @@ export default function AccessPanel() {
   function submit(event: FormEvent) {
     event.preventDefault();
     if (password !== confirm) { setError("Les deux mots de passe diffèrent"); return; }
-    void send({ new_password: password }, status?.password_set ? "Mot de passe changé : les autres appareils doivent se reconnecter." : "Mot de passe défini.");
+    void send({ new_password: password }, status?.password_set ? "Mot de passe changé : les autres appareils doivent se reconnecter, et les jetons d'accès sont révoqués." : "Mot de passe défini.");
   }
 
   async function logout() {
@@ -78,5 +79,6 @@ export default function AccessPanel() {
       <li>Le navigateur avertit d&apos;un certificat inconnu : il vient de l&apos;autorité locale de Sténo. {network?.https_ready ? <><a className="text-link" href={`${API}/network/certificate`}>Téléchargez-la</a> et installez-la une fois sur chaque appareil pour ne plus voir l&apos;avertissement.</> : "Elle sera téléchargeable ici après le premier démarrage du proxy."}</li>
     </ol>
     <p className="field-hint">Le pare-feu de Windows peut demander d&apos;autoriser Docker sur le réseau privé : acceptez. N&apos;ouvrez pas ce port vers Internet.</p>
+    <AccessTokens />
   </section>;
 }

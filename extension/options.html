@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Envoyer à Sténo — options</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="page">
+  <main>
+    <h1><img src="icons/icon-32.png" alt="" width="24" height="24"> Envoyer à Sténo</h1>
+    <p class="muted">Un clic sur l'icône envoie l'onglet ouvert à votre Sténo. Clic droit sur l'icône : choisir le template et les intervenants avant l'envoi.</p>
+
+    <form id="settings">
+      <label for="origin">Adresse de Sténo</label>
+      <input id="origin" type="text" placeholder="http://127.0.0.1:3000" autocomplete="off" required>
+      <p class="hint">Sur l'ordinateur de Sténo : <code>http://127.0.0.1:3000</code>. Depuis un autre ordinateur du réseau : l'adresse HTTPS de Paramètres › Accès et sécurité (par exemple <code>https://192.168.1.20:8443</code>). L'extension ne contacte que cette adresse.</p>
+
+      <label for="token">Jeton d'accès</label>
+      <input id="token" type="password" placeholder="steno_…" autocomplete="off" spellcheck="false">
+      <p class="hint">Nécessaire depuis le réseau, ou si Sténo demande le mot de passe sur cet ordinateur. Créez-le dans Sténo, Paramètres › Accès et sécurité › Jetons d'accès. Il reste dans ce navigateur, sans synchronisation.</p>
+
+      <fieldset>
+        <legend>Options par défaut du clic sur l'icône</legend>
+        <label for="template">Template</label>
+        <select id="template"><option value="">Template par défaut de Sténo</option></select>
+        <label class="check"><input id="diarize" type="checkbox"> Identifier les intervenants</label>
+        <label for="speakers">Nombre d'intervenants (facultatif)</label>
+        <input id="speakers" type="number" min="1" max="20" placeholder="auto">
+      </fieldset>
+
+      <label class="check rights"><input id="rights" type="checkbox" required> J'enverrai seulement des contenus que j'ai le droit d'utiliser (contenu libre, publié pour être téléchargé, ou dont je suis l'auteur). Le lien est conservé avec l'analyse.</label>
+
+      <div class="row"><button type="submit">Enregistrer et tester</button></div>
+      <p id="status" role="status"></p>
+    </form>
+  </main>
+  <script src="lib.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

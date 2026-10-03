@@ -7,6 +7,16 @@ const nextConfig: NextConfig = {
     // 10 MB development proxy default must not undercut FastAPI's 2 GB limit.
     middlewareClientMaxBodySize: "2gb",
   },
+  async headers() {
+    // Never inside another site's frame: /envoyer and the settings' buttons cannot be clickjacked.
+    return [{
+      source: "/:path*",
+      headers: [
+        { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+        { key: "X-Frame-Options", value: "DENY" },
+      ],
+    }];
+  },
   async rewrites() {
     return [{
       source: "/api/:path*",
